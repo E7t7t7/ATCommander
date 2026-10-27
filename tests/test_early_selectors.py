@@ -82,5 +82,12 @@ class EarlySelectorTests(unittest.TestCase):
         self.assertEqual("7", app.deck_rows[0]["id"])
         self.assertEqual({"fixture-resource": 42}, app.current_snapshot)
 
+    def test_renamed_slot_refreshes_all_battle_and_builder_selectors_by_stable_id(self):
+        app=self.app();app.builder_slot_combo={};app.builder_slot=Value('Old name  [ID 24]')
+        variables=('deck_var','rumble_deck','siege_deck','rumble_offense_deck','siege_offense_deck','challenge_offense_deck','builder_slot')
+        for name in variables:getattr(app,name).set('Old name  [ID 24]')
+        app._apply_account_selectors([{'id':'24','name':'My new name','resolved':'1'}])
+        for name in variables:self.assertEqual(getattr(app,name).get(),'My new name  [ID 24]')
+
 
 if __name__ == "__main__": unittest.main()

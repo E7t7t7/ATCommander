@@ -2,6 +2,15 @@
 
 Continues the functional 1.7.25 source. Earlier working combat, mail, training and bulk Nixon flows were preserved.
 
+## Resizable logs and deck workshop (October 27)
+
+- Events controls are vertically scrollable above a draggable divider, with a minimum visible activity pane. Larger control sections no longer push the log below the window. Shared activity panels, including Swole, add a separate resizable live-log window with a Follow latest switch and bounded rendering.
+- Added a dedicated Deck builder page: exact saved-slot selection, verified in-game renaming, slot-to-draft loading, owned-card search, double-click to add, remove selected cards and a reviewed save. Renaming refreshes all Arena/event/defense/builder selectors while retaining their IDs.
+- Suggestions support balanced recommendations, a single character with items, BGE/trait combo results and character-only decks. Controls cover 25–35 cards, rarity, PC count and researched-only recipes. Drafts contain unique owned card instances with current level stats; unavailable rules stop rather than silently broadening. Rankings are heuristic stats/coverage, not a claim of optimal battle performance.
+- Deck edits wait for other automation, freeze the selected slot and preview stamp, re-read current ownership/state, keep a local recovery backup and transmit each write once. Renames and replacements verify names, hero/cards and active selection from fresh state; uncertain results require a refresh. Stop and closing wait for the worker, and widgets update only on the main thread.
+- Read-only live previews used 1,134 current usable card instances and produced two unique 25-card drafts: balanced coverage 76.9%, single-character coverage 100%. No deck edits, purchases, battles or resource spending occurred during this check. Rename/save writes were tested against synthetic accounts only; no live rename or replacement is claimed.
+- All **1,335 offline tests** pass, with 26 new checks for deck generation, ownership/research/trait rules, guarded rename/save, lost replies, stale previews, name preservation, optional catalog failure, shared selector updates, and log visibility/resizing. The full twelve-tab interface constructs successfully. Existing Melee settings and battle behavior remain covered.
+
 ## GitHub application updates (October 26)
 
 - Added a separate **Update Commander** button, using the public `E7t7t7/ATCommander` repository's `main` branch. It pins a manifest and source archive to the same commit, verifies every managed file's SHA-256 and Python syntax, and stages the update without changing loaded files or interrupting a battle/research queue.

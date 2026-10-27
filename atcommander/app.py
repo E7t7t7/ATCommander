@@ -33,6 +33,8 @@ from .command_center import CommandCenterMixin
 from .research_center import ResearchCenterMixin
 from .client_update_ui import ClientUpdateMixin
 from .app_update_ui import AppUpdateMixin
+from .deck_builder_ui import DeckBuilderMixin
+from .log_view import logbox, split_controls_log
 from .adventure_catalog import build_adventure_campaign_rows, find_adventure_campaign
 from .shop_rewards import (api_rejected, extract_item_choices, item_choice_priority,
                            choose_item_reward, item_choice_confirmed, daily_upgrade_progress,
@@ -111,7 +113,7 @@ def _shop_warning16(response):
     return ("warning_16" in low or "try that again in a moment" in low or
             "please try that again" in low or "too fast" in low or "rate" in low)
 
-class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
+class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
     def __init__(self,root:tk.Tk):
         self.root=root; root.title(f"AT Commander {VERSION}"); root.geometry("1660x940"); root.minsize(1340,760); root.configure(bg="#0b1220")
         self._closing=False
@@ -145,13 +147,14 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         self.nb=ttk.Notebook(workspace,style="Nav.TNotebook"); self.nb.pack(side="left",fill="both",expand=True)
         self.arena_tab=ttk.Frame(self.nb); self.events_tab=ttk.Frame(self.nb); self.swole_tab=ttk.Frame(self.nb); self.adventure_tab=ttk.Frame(self.nb); self.cm_tab=ttk.Frame(self.nb); self.inventory_tab=ttk.Frame(self.nb); self.stats_tab=ttk.Frame(self.nb); self.diag_tab=ttk.Frame(self.nb)
         for tab,name in [(self.arena_tab,"Arena"),(self.events_tab,"Events"),(self.swole_tab,"Swole"),(self.adventure_tab,"Adventure"),(self.cm_tab,"CM Reviews"),(self.inventory_tab,"Inventory / Mail"),(self.stats_tab,"Stats"),(self.diag_tab,"Diagnostics / Learn")]: self.nb.add(tab,text=name)
+        self.deck_builder_tab=ttk.Frame(self.nb);self.nb.add(self.deck_builder_tab,text="Deck builder")
         self.commands_tab=ttk.Frame(self.nb); self.routines_tab=ttk.Frame(self.nb)
         self.research_tab=ttk.Frame(self.nb);self.nb.add(self.research_tab,text="Research")
         self.nb.add(self.commands_tab,text="Command Center"); self.nb.add(self.routines_tab,text="Automation")
         self.nav_buttons=[]
         groups=[("Daily play",[("Automation",self.routines_tab),("Research",self.research_tab)]),
                 ("Battles",[("Arena",self.arena_tab),("Adventure",self.adventure_tab),("Events",self.events_tab),("Swole",self.swole_tab)]),
-                ("Collection",[("CM Reviews",self.cm_tab),("Inventory / Mail",self.inventory_tab)]),
+                ("Collection",[("Deck builder",self.deck_builder_tab),("CM Reviews",self.cm_tab),("Inventory / Mail",self.inventory_tab)]),
                 ("More",[("Stats",self.stats_tab),("Command Center",self.commands_tab),("Tools / Ads",self.diag_tab)])]
         for section,items in groups:
             ttk.Label(nav,text=section,style="Nav.TLabel").pack(anchor="w",padx=12,pady=(8,4))
@@ -163,6 +166,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         self.nb.bind("<<NotebookTabChanged>>",self._sync_navigation,add="+")
         self._build_arena(); self._build_events(); self._build_swole(); self._build_adventure(); self._build_cm_reviews(); self._build_inventory(); self._build_stats(); self._build_diag()
         self._build_command_center()
+        self._build_deck_builder()
         self._build_research_center()
         self._build_game_panel()
         from .appearance import soften_labels
@@ -276,8 +280,10 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         self.log=self._logbox(self.arena_tab); self._log("Ready. API-only mode; no game rendering or animations.")
 
     def _build_events(self):
-        ttk.Label(self.events_tab,text="Rumble and Siege share the validated Item → Combo engine. Alternative options only change tie-breakers; they never abandon the Item → Combo sequence.").pack(anchor="w",pady=(10,8))
-        wrap=ttk.Frame(self.events_tab); wrap.pack(fill="x"); wrap.columnconfigure(0,weight=1); wrap.columnconfigure(1,weight=1)
+        self.event_panes,event_controls,event_log_host=split_controls_log(self.events_tab)
+        ttk.Label(event_controls,text="Drag the divider above Activity to resize the live log. Scroll the controls when space is tight.").pack(anchor="w",pady=(4,0))
+        ttk.Label(event_controls,text="Rumble and Siege share the validated Item → Combo engine. Alternative options only change tie-breakers; they never abandon the Item → Combo sequence.").pack(anchor="w",pady=(10,8))
+        wrap=ttk.Frame(event_controls); wrap.pack(fill="x"); wrap.columnconfigure(0,weight=1); wrap.columnconfigure(1,weight=1)
         self.rumble_status=tk.StringVar(value="Checking…"); self.rumble_deck=tk.StringVar(value="Current / unchanged"); self.rumble_offense_deck=tk.StringVar(value="Current / unchanged"); self.rumble_offense_hero=tk.StringVar(value="Current / unchanged"); self.rumble_logic=tk.StringVar(value=str(self.settings.get("rumble_logic",LOGIC_VALUES[0])))
         r=ttk.Frame(wrap,style="Card.TFrame",padding=12); r.grid(row=0,column=0,sticky="nsew",padx=(0,5)); ttk.Label(r,text="RUMBLE",style="Big.Card.TLabel").grid(row=0,column=0,columnspan=2,sticky="w"); ttk.Label(r,textvariable=self.rumble_status,style="Muted.Card.TLabel").grid(row=1,column=0,columnspan=2,sticky="w",pady=(0,8)); ttk.Label(r,text="Battle logic",style="Card.TLabel").grid(row=2,column=0,sticky="w"); ttk.Combobox(r,textvariable=self.rumble_logic,state="readonly",values=LOGIC_VALUES,width=34).grid(row=2,column=1,sticky="ew",padx=(8,0)); ttk.Label(r,text="Offense deck",style="Card.TLabel").grid(row=3,column=0,sticky="w",pady=(7,0)); self.rumble_offense_deck_combo=ttk.Combobox(r,textvariable=self.rumble_offense_deck,state="readonly",values=["Current / unchanged"],width=34); self.rumble_offense_deck_combo.grid(row=3,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Label(r,text="Offense hero",style="Card.TLabel").grid(row=4,column=0,sticky="w",pady=(7,0)); self.rumble_offense_hero_combo=ttk.Combobox(r,textvariable=self.rumble_offense_hero,state="readonly",values=["Current / unchanged"],width=34); self.rumble_offense_hero_combo.grid(row=4,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Label(r,text="Defense deck",style="Card.TLabel").grid(row=5,column=0,sticky="w",pady=(7,0)); self.rumble_deck_combo=ttk.Combobox(r,textvariable=self.rumble_deck,state="readonly",values=["Current / unchanged"],width=34); self.rumble_deck_combo.grid(row=5,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Button(r,text="AUTO-COMPLETE RUMBLE",command=lambda:self.start_event("Rumble"),style="Accent.TButton").grid(row=6,column=0,columnspan=2,sticky="w",pady=(10,0)); r.columnconfigure(1,weight=1)
         self.siege_status=tk.StringVar(value="Checking…"); self.siege_deck=tk.StringVar(value="Current / unchanged"); self.siege_offense_deck=tk.StringVar(value="Current / unchanged"); self.siege_offense_hero=tk.StringVar(value="Current / unchanged"); self.siege_logic=tk.StringVar(value=str(self.settings.get("siege_logic",LOGIC_VALUES[0]))); self.siege_island=tk.StringVar(value="Current / unchanged")
@@ -288,7 +294,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         ttk.Label(s,text="Attack target C",style="Card.TLabel").grid(row=9,column=0,sticky="w",pady=(7,0)); self.siege_target_c_combo=ttk.Combobox(s,textvariable=self.siege_target_c,state="readonly",values=["Any / none"],width=34); self.siege_target_c_combo.grid(row=9,column=1,sticky="ew",padx=(8,0),pady=(7,0))
         opts=ttk.Frame(s,style="Card.TFrame"); opts.grid(row=10,column=0,columnspan=2,sticky="w",pady=(7,0)); ttk.Checkbutton(opts,text="If A/B/C are down, hit any living island",variable=self.siege_fallback_any).pack(side="left"); ttk.Label(opts,text="Poll s",style="Card.TLabel").pack(side="left",padx=(12,4)); ttk.Entry(opts,textvariable=self.siege_poll,width=5).pack(side="left")
         bb=ttk.Frame(s,style="Card.TFrame"); bb.grid(row=11,column=0,columnspan=2,sticky="w",pady=(10,0)); ttk.Button(bb,text="SET DEFENSE ISLAND",command=self.apply_siege_island).pack(side="left",padx=(0,6)); ttk.Button(bb,text="ARM / AUTO-COMPLETE SIEGE",command=lambda:self.start_event("Siege"),style="Accent.TButton").pack(side="left"); ttk.Label(s,text="Commander applies defense, waits for the Battle phase, then uses direct signed API starts against A → B → C and any living fallback island if enabled.",style="Muted.Card.TLabel",wraplength=520).grid(row=12,column=0,columnspan=2,sticky="w",pady=(6,0)); s.columnconfigure(1,weight=1)
-        ch=ttk.Frame(self.events_tab,style="Card.TFrame",padding=10); ch.pack(fill="x",pady=(8,0))
+        ch=ttk.Frame(event_controls,style="Card.TFrame",padding=10); ch.pack(fill="x",pady=(8,0))
         self.challenge_status=tk.StringVar(value="Refresh Account to detect live Challenge / Clash / Melee events.")
         self.challenge_var=tk.StringVar(value="No detected challenge")
         self.challenge_logic=tk.StringVar(value=str(self.settings.get("challenge_logic",LOGIC_VALUES[0]))); self.challenge_offense_deck=tk.StringVar(value="Current / unchanged"); self.challenge_offense_hero=tk.StringVar(value="Current / unchanged")
@@ -303,7 +309,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         ttk.Checkbutton(ch,text="Character first (Melee only)",variable=self.melee_character_first_var,command=self._save_melee_character_first).grid(row=4,column=0,columnspan=3,sticky="w",pady=(6,0))
         ttk.Label(ch,text="Direct signed API starts refresh the active challenge ID, level and energy before each fight.",style="Muted.Card.TLabel").grid(row=5,column=0,columnspan=6,sticky="w",pady=(6,0))
         for i in range(4): ch.columnconfigure(i,weight=1)
-        self.event_log=self._logbox(self.events_tab,height=9,pady=(8,0))
+        self.event_log=self._logbox(event_log_host,height=7)
 
     def _build_swole(self):
         info=ttk.Frame(self.swole_tab,style="Card.TFrame",padding=10); info.pack(fill="x",pady=(10,8)); self.swole_status=tk.StringVar(value="Checking…"); self.swole_tickets=tk.StringVar(value="Swole tickets: — / —")
@@ -313,7 +319,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         body=ttk.Frame(self.swole_tab); body.pack(fill="both",expand=True); left=ttk.Frame(body,style="Card.TFrame",padding=9); left.pack(side="left",fill="both",expand=True,padx=(0,5)); right=ttk.Frame(body,style="Card.TFrame",padding=8); right.pack(side="left",fill="both",expand=True,padx=(5,0))
         choose=ttk.Frame(left,style="Card.TFrame"); choose.pack(fill="x"); self.swole_target=tk.StringVar(value="Select hero…"); self.swole_target_combo=ttk.Combobox(choose,textvariable=self.swole_target,state="readonly",values=["Select hero…"],width=28); self.swole_target_combo.pack(side="left",fill="x",expand=True); ttk.Label(choose,text="Target level",style="Card.TLabel").pack(side="left",padx=(8,4)); self.swole_level=tk.IntVar(value=1); ttk.Spinbox(choose,from_=1,to=20,textvariable=self.swole_level,width=5).pack(side="left"); ttk.Button(choose,text="ADD MILESTONE",command=self._swole_add).pack(side="left",padx=(8,0))
         self.swole_queue_list=tk.Listbox(left,bg="#08111e",fg="#dce7f4",selectbackground="#243755",height=16,font=("Segoe UI",10),relief="flat"); self.swole_queue_list.pack(fill="both",expand=True,pady=(8,0)); q=ttk.Frame(left,style="Card.TFrame"); q.pack(fill="x",pady=(7,0)); ttk.Button(q,text="Remove",command=self._swole_remove).pack(side="left"); ttk.Button(q,text="↑",width=3,command=lambda:self._swole_move(-1)).pack(side="left",padx=4); ttk.Button(q,text="↓",width=3,command=lambda:self._swole_move(1)).pack(side="left"); ttk.Button(q,text="Clear",command=self._swole_clear).pack(side="left",padx=4); ttk.Button(q,text="+ FIGHTS",command=self._swole_add_fights).pack(side="left",padx=4); ttk.Button(q,text="PASTE SCHEDULE",command=self._swole_import_schedule).pack(side="left",padx=4); ttk.Label(q,text="Poll s",style="Card.TLabel").pack(side="left",padx=(14,4)); self.swole_poll=tk.StringVar(value=str(self.settings.get("swole_poll_seconds",30))); ttk.Entry(q,textvariable=self.swole_poll,width=6).pack(side="left"); ttk.Button(q,text="START",style="Accent.TButton",command=self.start_swole).pack(side="right"); ttk.Button(q,text="STOP",command=self.stop_swole).pack(side="right",padx=5)
-        self.swole_log=tk.Text(right,bg="#151d27",fg="#c4d0dd",relief="flat",font=("Segoe UI",9),wrap="word",padx=8,pady=6,spacing1=3); self.swole_log.pack(fill="both",expand=True); self.swole_log.configure(state="disabled")
+        self.swole_log=self._logbox(right)
 
     def _build_adventure(self):
         top=ttk.Frame(self.adventure_tab,style="Card.TFrame",padding=12); top.pack(fill="x",pady=(10,8))
@@ -572,8 +578,8 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         self.nb.select(self.commands_tab)
         self._command_launch([('research-ad',{})],False)
 
-    def _logbox(self,parent,height=None,pady=(0,0)):
-        f=ttk.Frame(parent,style="Card.TFrame",padding=9); f.pack(fill="both",expand=True,pady=pady); t=tk.Text(f,bg="#151d27",fg="#c4d0dd",insertbackground="#fff",relief="flat",font=("Segoe UI",9),wrap="word",height=height,padx=6,pady=6,spacing1=3); t.pack(fill="both",expand=True); t.configure(state="disabled"); return t
+    def _logbox(self,parent,height=14,pady=(0,0)):
+        return logbox(parent,height,pady)
 
     def _make_simple_inventory(self,parent):
         bar=ttk.Frame(parent); bar.pack(fill="x",pady=(7,6)); ttk.Label(bar,text="Live counts from the latest refresh").pack(side="left"); ttk.Button(bar,text="Refresh Now",command=self.refresh_inventory).pack(side="right"); f=ttk.Frame(parent,style="Card.TFrame",padding=7); f.pack(fill="both",expand=True); tree=ttk.Treeview(f,columns=("type","name","count"),show="headings"); tree.heading("type",text="Type"); tree.heading("name",text="Item / Resource / Card"); tree.heading("count",text="Current"); tree.column("type",width=100); tree.column("name",width=600); tree.column("count",width=130,anchor="e"); tree.pack(fill="both",expand=True); return tree
@@ -837,7 +843,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
             self.deck_rows=list(decks)
             apply(self.deck_rows,(("deck_combo","deck_var"),("rumble_deck_combo","rumble_deck"),
                 ("siege_deck_combo","siege_deck"),("rumble_offense_deck_combo","rumble_offense_deck"),
-                ("siege_offense_deck_combo","siege_offense_deck"),("challenge_offense_deck_combo","challenge_offense_deck")))
+                ("siege_offense_deck_combo","siege_offense_deck"),("challenge_offense_deck_combo","challenge_offense_deck"),("builder_slot_combo","builder_slot")))
         if heroes is not None:
             self.hero_rows=list(heroes)
             apply(self.hero_rows,(("hero_combo","hero_var"),("rumble_offense_hero_combo","rumble_offense_hero"),
@@ -946,6 +952,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
         if self.adventure_runner:self.adventure_runner.stop();self._append(self.adventure_log,"Stopping Adventure farm…")
     def stop_all(self):
+        if hasattr(self,"deck_builder_stop"):self.deck_builder_stop.set()
         if hasattr(self,"app_update_stop"):self.app_update_stop.set()
         if hasattr(self,"client_update_stop"):self.client_update_stop.set()
         if hasattr(self,"game_panel_stop"):self.game_panel_stop.set()
@@ -972,6 +979,8 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
             busy=busy or ad_thread is not None and ad_thread.is_alive()
             scan_thread=getattr(self,"adventure_scan_thread",None)
             busy=busy or scan_thread is not None and scan_thread.is_alive()
+            builder_thread=getattr(self,"deck_builder_thread",None)
+            busy=busy or builder_thread is not None and builder_thread.is_alive()
             update_thread=getattr(self,"client_update_thread",None)
             busy=busy or update_thread is not None and update_thread.is_alive()
             app_update_thread=getattr(self,"app_update_thread",None)
@@ -2141,6 +2150,7 @@ class ATCommanderApp(AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,Researc
             try:self.root.after(100,self._drain_events)
             except tk.TclError:pass
     def _handle_event(self,e):
+        if DeckBuilderMixin._deck_builder_event(self,e):return
         if AppUpdateMixin._app_update_event(self,e):return
         if ClientUpdateMixin._client_update_event(self,e):return
         if hasattr(self,"research_status") and self._research_event(e):return

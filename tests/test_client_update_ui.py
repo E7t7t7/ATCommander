@@ -85,10 +85,17 @@ class ClientUpdateUiTests(unittest.TestCase):
                  patch.object(module.ATCommanderApp,"_build_game_panel"), \
                  patch("atcommander.utility_commands.CommandStore",return_value=store):
                 app=module.ATCommanderApp(root)
-            self.assertEqual(len(app.nb.tabs()),11)
-            self.assertEqual(len(app.nav_buttons),11)
+            def cancel_callbacks():
+                for identity in root.tk.call('after','info'):
+                    try:root.after_cancel(identity)
+                    except tk.TclError:pass
+            self.addCleanup(cancel_callbacks)
+            self.assertEqual(len(app.nb.tabs()),12)
+            self.assertEqual(len(app.nav_buttons),12)
             self.assertEqual(app.client_update_button.cget("text"),"Check / update game client")
             self.assertEqual(app.app_update_button.cget("text"),"Update Commander")
+            self.assertEqual(app.builder_rule.get(),"Balanced recommendation")
+            self.assertIsNone(app.deck_builder_cache)
             app.nb.select(app.research_tab);app._sync_navigation()
             active=[tab for tab,button in app.nav_buttons if button.cget("style")=="Nav.Active.TButton"]
             self.assertEqual(active,[app.research_tab])

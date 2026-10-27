@@ -464,7 +464,7 @@ class CommandCenterMixin:
         """Keep browser startup/input exclusive until its existing worker settles."""
         if getattr(self,"_closing",False):return True
         if getattr(self,"learn_session",None) is not None:return True
-        for name in ("game_panel_thread","ad_thread","research_thread"):
+        for name in ("game_panel_thread","ad_thread","research_thread","deck_builder_thread"):
             worker=getattr(self,name,None)
             if worker is not None and worker is not ignore_thread and worker.is_alive():return True
         if getattr(self,"research_busy",False):return True
