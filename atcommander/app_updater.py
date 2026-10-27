@@ -190,7 +190,10 @@ def prepare_update(root=None, *, progress=lambda text: None, should_stop=lambda:
         progress("Checking Commander on GitHub…")
         _cancel(should_stop)
         try:
-            commit = json.loads(fetch(f"https://api.github.com/repos/{REPOSITORY}/commits/{BRANCH}", 1024 * 1024, should_stop))["sha"]
+            reference = json.loads(fetch(f"https://api.github.com/repos/{REPOSITORY}/git/ref/heads/{BRANCH}", 1024 * 1024, should_stop))["object"]
+            if reference["type"] != "commit":
+                raise UpdateError("The repository branch does not point to an update revision.")
+            commit = reference["sha"]
         except UpdateError:
             raise
         except Exception:

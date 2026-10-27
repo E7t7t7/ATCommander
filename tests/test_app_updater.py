@@ -40,7 +40,7 @@ def zip_bytes(files, entries=()):
 def fake_fetch(files, manifest, calls=None, archive=None):
     def fetch(url, limit, stop):
         if calls is not None: calls.append(url)
-        if "/commits/" in url: return json.dumps({"sha": REVISION}).encode()
+        if "/git/ref/heads/" in url: return json.dumps({"object": {"type": "commit", "sha": REVISION}}).encode()
         if "raw.githubusercontent.com" in url: return json.dumps(manifest).encode()
         if "codeload.github.com" in url: return archive or zip_bytes(files)
         raise AssertionError("Unexpected source")
@@ -73,6 +73,7 @@ class AppUpdaterTests(unittest.TestCase):
         result = updater.prepare_update(self.root, fetch=fake_fetch(self.files, self.manifest, calls))
         self.assertTrue(result["ready"])
         self.assertEqual((self.root / "app.py").read_bytes(), b"# previous working source\n")
+        self.assertTrue(calls[0].endswith("/git/ref/heads/main"))
         self.assertIn(f"/{REVISION}/commander-update.json", calls[1])
         self.assertTrue(calls[2].endswith("/zip/" + REVISION))
         self.assertTrue((self.root / updater.STATE / "pending.json").exists())
@@ -124,7 +125,7 @@ class AppUpdaterTests(unittest.TestCase):
 
     def test_invalid_commit_cannot_be_used_as_a_download_path(self):
         with self.assertRaisesRegex(updater.UpdateError, "invalid revision"):
-            updater.prepare_update(self.root, fetch=lambda *args: b'{"sha":"../main"}')
+            updater.prepare_update(self.root, fetch=lambda *args: b'{"object":{"type":"commit","sha":"../main"}}')
 
     def test_bad_hash_never_sets_pending_and_preserves_prepared_update(self):
         self.prepare(); before = (self.root / updater.STATE / "pending.json").read_bytes()
