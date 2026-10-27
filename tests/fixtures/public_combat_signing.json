@@ -1,0 +1,11 @@
+{
+  "user_id": "fixture-user",
+  "message": "startChallenge",
+  "client_time": 1700000000,
+  "client_version": "1181000",
+  "platform": "Web",
+  "expected_sha256": {
+    "msgsig": "37c06f5cc49480e7a7767051ed514f744ec6d173222e1f8c35be4a052f80ab1e",
+    "clisig": "1e54ed2c2e4456b4ab7c3483fdd8a3836834bb2642241e93a69b97157e41014a"
+  }
+}

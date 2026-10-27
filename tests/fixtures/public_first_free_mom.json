@@ -1,0 +1,16 @@
+{
+  "identity": "synthetic-mom-fixture",
+  "timestamp": 1700000000,
+  "expected_sha256": {
+    "adsig": "9fab0562aa9a8e82269cfac494e7041354ba3908ed796546eeea66ea7a0ef3cc",
+    "msgsig": "08d068fdd210ee4d90c30bdd194ee87861a930df3378d989984d88a55d34195f",
+    "clisig": "a552e5dd42177bb99f24134b23f81dd9455f1b3cf204ad47279f122283d681db"
+  },
+  "expected_public_fields": {
+    "client_time": "1700000000",
+    "client_version": "1181000",
+    "platform": "Web",
+    "client_version_full": "1.181.0",
+    "unity": "Unity6000_3_6"
+  }
+}

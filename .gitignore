@@ -1,0 +1,18 @@
+# Local account data, environments, captures and update backups never belong in Git.
+.venv/
+.commander-updates/
+.atcommander/
+__pycache__/
+*.py[cod]
+*.log
+diagnostics/
+browser_profile/
+browser_cache/
+*.new
+*.commander-new
+.env*
+credentials*.json
+settings.json
+*token*.json
+*session*.json
+*trace*.json
