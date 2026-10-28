@@ -475,6 +475,33 @@ class NativeStartupPopupTests(unittest.TestCase):
             self.assertEqual(result["calls"], [])
 
 
+class NativeStartup1183Tests(unittest.TestCase):
+    # Reuse the synthetic memory runner, but discover only these new checks.
+    __unittest_skip__ = not Path(NODE).exists()
+    native = NativeStartupPopupTests.native
+
+    def test_1183_visible_reward_navigation_uses_verified_ordinary_handlers(self):
+        build=startup.PUBLIC_WASM_1183;slots=startup.PUBLIC_BUILD_BINDINGS[build]['slots']
+        cases=[({},observation('close','reward'),[slots['reward_close']]),
+            ({'button':5},observation('continue','reward'),[slots['reward_continue']]),
+            ({'paused':True,'waiting':True},observation('reveal','reward'),[slots['reveal_press'],slots['reveal_release']]),
+            ({'panel':'choice'},observation('close','choice'),[slots['choice_close']]),
+            ({'panel':'quest_complete','received_quest':True},quest_display(),[slots['hide']]),
+            ({'panel':'promotion'},observation('close','promotion'),[slots['hide']])]
+        for scenario,expected,calls in cases:
+            with self.subTest(scenario=scenario):
+                result=self.native(scenario,'advance',expected,build_hash=build)
+                self.assertEqual(result['calls'],calls)
+                self.assertTrue(result['result']['action_sent'])
+
+    def test_1183_wrong_build_paid_controls_foreign_scope_and_callbacks_stay_blocked(self):
+        for scenario in ({'bad_hash':True},{'bad_field':True},{'bad_root':True},{'button':3},
+                         {'button':4},{'buy_more':True},{'foreign_scope':True},{'callback':True,'button':5}):
+            with self.subTest(scenario=scenario):
+                result=self.native(scenario,'advance',observation('close','reward'),build_hash=startup.PUBLIC_WASM_1183)
+                self.assertEqual(result['calls'],[])
+
+
 NODE_FIXTURE = r'''
 const definitions=__DEFINITIONS__,scenario=__SCENARIO__,hash=__EXPECTED_HASH__,binding=__BINDING__,slots=binding.slots;
 const field=(name,label)=>definitions[name].fields.find(item=>item[1]===label)[2];

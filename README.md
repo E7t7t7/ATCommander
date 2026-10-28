@@ -46,6 +46,8 @@ Adventure now recovers an old accepted farming attempt when its stage is already
 
 Live CM-shop offers and current event Adventure missions are read from authoritative account catalogs. Choice rewards use Rogu → other Characters → Items / Power Cards. Golden Packs remain real single purchases with adaptive pacing; mouse-free rewarded ads still use legitimate playback and completion verification.
 
+Ad startup navigation now supports the exact public 1.183 build as well as prior verified builds. Previously, the combat profile accepted 1.183 while the popup guard rejected it before real ad playback. The new popup layouts and eleven ordinary navigation handlers were verified offline against the official public assets. Unknown builds and paid/foreign actions remain blocked. Live ad completion after this update has not yet been verified. A Discord connection alone cannot automatically invoke Bender’s `/user-ad` slash command; no unsupported user-token relay or fabricated ad completion is implemented.
+
 ## CM Reviews
 
 The desktop **CM Reviews** tab uses current Animation Throwdown static/account data to generate a deterministic 0–10 practical Combo Mastery review. It is inspired by the long-running community review framework—current strength, skill package, BGE relevance, PC usefulness, power creep and spending value—without copying old scores or prose as if they were permanently correct.
@@ -60,7 +62,7 @@ Arena has an optional **Bypass 30-turn cutoff** checkbox for combo events. It de
 
 Local guild reports and defense plans support HTML/CSV/JSON workflows. Card maps support SVG/HTML/PNG/JPEG and three layouts, using exact selected-level stats. Deck swap/restore validates both sides, keeps backups and verifies each write from fresh state.
 
-The current source passes **1,337 offline regression tests**, including 28 new deck-workshop/log/selector checks, 30 application-updater/privacy checks and 135 Adventure checks for island scanning, native progress, completion sequencing, energy limits, capped-farm recovery, retained unknown outcomes, changed journal records, pause/error messages, Stop, GUI controls and saved farming preferences. Coverage also includes 34 Research controls/recovery checks, Melee character-first sequencing/targeting, saved preferences and mode isolation, signed challenge moves, Swole score verification and remaining-fight preservation, embedded browser ownership/cleanup, startup popup guards, large research cancellation, daily automation, research ads, guild reports, deck safety and CM lookup fixes.
+The current source passes **1,339 offline regression tests**, including 28 new deck-workshop/log/selector checks, 30 application-updater/privacy checks and 135 Adventure checks for island scanning, native progress, completion sequencing, energy limits, capped-farm recovery, retained unknown outcomes, changed journal records, pause/error messages, Stop, GUI controls and saved farming preferences. Coverage also includes 34 Research controls/recovery checks, Melee character-first sequencing/targeting, saved preferences and mode isolation, signed challenge moves, Swole score verification and remaining-fight preservation, embedded browser ownership/cleanup, startup popup guards, large research cancellation, daily automation, research ads, guild reports, deck safety and CM lookup fixes.
 
 ## Important
 

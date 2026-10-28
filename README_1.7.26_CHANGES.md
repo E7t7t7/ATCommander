@@ -2,6 +2,13 @@
 
 Continues the functional 1.7.25 source. Earlier working combat, mail, training and bulk Nixon flows were preserved.
 
+## Ad startup compatibility correction (October 28)
+
+- The popup guard used before ad playback still recognized only the older public binaries even though combat already accepted 1.183. Added exact 1.183 startup bindings for public WASM 49aa5eefcbf1a4f588d03520dc41208a0700e763804fe9ef45f149449d1a3c67.
+- Offline inspection checked 28 scoped type layouts, 163 remaining public popup names, exact manager/method registration references, and the relocation-independent fingerprints of all eleven ordinary navigation handlers against the verified 1.182 build. Removed obsolete popup names are omitted; unknown/new unsupported popups still stop. No downloaded game code was executed.
+- All **1,339 offline tests** pass, including synthetic 1.183 reward, choice, animation reveal, quest-display and sale-close navigation. Wrong binaries/fields/manager references, purchase controls, foreign scopes and callbacks remain blocked. No ad-completion request or SDK callback is fabricated, and the existing credit check remains required.
+- This fixes a confirmed pre-playback compatibility blocker. A complete live ad after the fix has not been verified. No automatic Discord/Bender relay is claimed: Bender's /user-ad is an application slash command, not a text command that another ordinary bot connection can execute on the user's behalf. A supported bridge/API from Bender would be needed for an automatic service integration.
+
 ## Events layout and workshop loading correction (published October 28)
 
 - Challenges, Clash and Melee now occupy compact labeled dropdown rows directly beneath Rumble, beside Siege. Removed the full-width lower section; tightened spacing and set the initial divider so the complete challenge card and its buttons fit above the log at the verified desktop size.

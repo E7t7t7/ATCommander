@@ -16,6 +16,7 @@ from collections.abc import Mapping
 from .local_commands import CommandUnavailable
 from .shop_rewards import api_rejected, choose_item_reward, extract_item_choices, item_choice_confirmed
 from .startup_popup_bindings import PUBLIC_BUILD_1182, PUBLIC_WASM_1182
+from .startup_popup_bindings_1183 import PUBLIC_BUILD_1183, PUBLIC_WASM_1183
 
 
 PUBLIC_WASM_SHA256 = "f337d37ff520406d2b40257f351e9417c825fbfd66d32dd1023d990b1afbc88c"
@@ -243,6 +244,7 @@ PUBLIC_BUILD_BINDINGS = {
                   "quest_received": 33729},
     },
     PUBLIC_WASM_1182: PUBLIC_BUILD_1182,
+    PUBLIC_WASM_1183: PUBLIC_BUILD_1183,
 }
 
 _NATIVE_JS = r'''(async()=>{
