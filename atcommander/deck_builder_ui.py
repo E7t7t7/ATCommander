@@ -25,9 +25,15 @@ class DeckBuilderMixin:
         self.builder_researched = tk.BooleanVar(value=True); self.builder_search = tk.StringVar()
         header = ttk.Frame(self.deck_builder_tab, padding=10); header.pack(fill="x")
         ttk.Label(header, text="Your deck workshop", style="Big.TLabel").pack(side="left")
-        ttk.Button(header, text="Load / refresh decks & cards", command=lambda: self._builder_launch("load")).pack(side="right")
+        self.builder_refresh_button=ttk.Button(header, text="Load / refresh decks & cards", command=lambda: self._builder_launch("load"))
+        self.builder_refresh_button.pack(side="right")
         ttk.Label(self.deck_builder_tab, textvariable=self.deck_builder_status, wraplength=1150).pack(fill="x", padx=10, pady=(0, 6))
-        _, controls, body = split_controls_log(self.deck_builder_tab)
+        self.builder_panes, controls, body = split_controls_log(self.deck_builder_tab,controls_height=270)
+        def initial_split(event):
+            if event.height>220 and not getattr(self,"_builder_split_ready",False):
+                self._builder_split_ready=True
+                self.builder_panes.sash_place(0,0,min(290,max(100,event.height-220)))
+        self.builder_panes.bind('<Configure>',initial_split)
         rename = ttk.LabelFrame(controls, text="Saved slot • rename independently of building", padding=9)
         rename.pack(fill="x", pady=(0, 8))
         self.builder_slot_combo = ttk.Combobox(rename, textvariable=self.builder_slot, state="readonly", width=35)
@@ -70,6 +76,10 @@ class DeckBuilderMixin:
         ttk.Button(top, text="Remove selected", command=self._builder_remove_cards).pack(side="right")
         self.builder_draft_table = self._builder_table(right)
 
+    def _builder_opened(self):
+        if not getattr(self,'deck_builder_cache',None):
+            self._builder_launch('load')
+
     @staticmethod
     def _builder_table(parent):
         frame = ttk.Frame(parent); frame.pack(fill="both", expand=True, pady=(5, 0))
@@ -87,10 +97,15 @@ class DeckBuilderMixin:
         cache = self.deck_builder_cache; target = self._builder_target()
         if cache and target:
             self.builder_name.set(deck_stamp(cache["snapshot"], target)["name"])
+            self._builder_load_slot()
+        elif target:
+            self._builder_launch('load')
 
     def _builder_load_slot(self):
         cache = self.deck_builder_cache; target = self._builder_target()
-        if not cache or not target: return
+        if not cache:
+            self._builder_launch('load');return
+        if not target:return
         stamp = deck_stamp(cache["snapshot"], target)
         pool = {str(c["unit_index"]): c for c in cache["pool"]}
         if any(i not in pool for i in stamp["units"]):
@@ -105,7 +120,8 @@ class DeckBuilderMixin:
             self.deck_builder_status.set("Finish or stop active automation before loading or editing decks."); return False
         cache = self.deck_builder_cache; target = self._builder_target()
         if action != "load" and not cache:
-            self.deck_builder_status.set("Load your saved decks and owned cards first."); return False
+            self.deck_builder_status.set("Loading your cards first. Your selected slot will appear in the draft when ready.")
+            self._builder_launch('load');return False
         try:
             settings = {"rule": self.builder_rule.get(), "character": self.builder_character.get(), "trait": self.builder_trait.get(),
                 "size": int(self.builder_size.get()), "min_rarity": int(self.builder_rarity.get()),
@@ -116,6 +132,8 @@ class DeckBuilderMixin:
         except (ValueError, CommandInputError, CommandUnavailable) as error:
             self.deck_builder_status.set(str(error)); return False
         self.deck_builder_stop.clear(); self.deck_builder_status.set({"load": "Loading owned cards and exact saved slots…", "suggest": "Building a draft from owned cards…", "rename": "Renaming and verifying the saved deck…", "save": "Saving and verifying the reviewed draft…"}[action])
+        refresh=getattr(self,'builder_refresh_button',None)
+        if refresh is not None:refresh.configure(state='disabled',text='Loading…' if action=='load' else 'Working…')
         def work():
             try:
                 if action == "suggest":
@@ -151,6 +169,8 @@ class DeckBuilderMixin:
         if event.get("kind") != "deck_builder_done": return False
         if getattr(self, "_closing", False): return True
         action = event["action"]
+        refresh=getattr(self,'builder_refresh_button',None)
+        if refresh is not None:refresh.configure(state='normal',text='Load / refresh decks & cards')
         if event.get("error"):
             self.deck_builder_status.set(event["error"])
             if action in {"save", "rename"}: self.deck_builder_cache = None
@@ -159,6 +179,12 @@ class DeckBuilderMixin:
         if action == "load":
             self.deck_builder_cache = answer; self.deck_builder_draft = []; self._builder_render_draft()
             self._apply_account_selectors(exact_decks(answer["snapshot"]))
+            if not self._builder_target():
+                active=str((answer['snapshot'].get('user_data') or {}).get('active_deck') or '')
+                options=list(self.builder_slot_combo['values'])
+                chosen=next((label for label in options if f'[ID {active}]' in label),None)
+                if not chosen:chosen=next((label for label in options if '[ID ' in label),'')
+                self.builder_slot.set(chosen)
             self.builder_character_combo["values"] = [""] + sorted({c["name"] for c in answer["pool"] if c["kind"] == "character"})
             from .cm_reviews import _traits
             self.builder_trait_combo["values"] = [""] + sorted({t for c in answer["catalog"].values() if isinstance(c, dict) for t in _traits(c)})

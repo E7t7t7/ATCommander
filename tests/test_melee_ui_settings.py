@@ -24,7 +24,7 @@ class MeleeUISettingsTests(unittest.TestCase):
             stack.enter_context(patch.object(app_module,"split_controls_log",return_value=(Mock(),Mock(),Mock())))
             stack.enter_context(patch.object(app_module.tk,"StringVar",side_effect=Value))
             stack.enter_context(patch.object(app_module.tk,"BooleanVar",side_effect=Value))
-            for name in ("Frame","Label","Combobox","Button","Entry"):
+            for name in ("Frame","Label","Combobox","Button","Entry","Separator"):
                 stack.enter_context(patch.object(app_module.ttk,name))
             checkbox=stack.enter_context(patch.object(app_module.ttk,"Checkbutton"))
             ATCommanderApp._build_events(app)

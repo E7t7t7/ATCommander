@@ -3,12 +3,12 @@ import tkinter as tk
 from tkinter import ttk
 
 
-def split_controls_log(parent):
+def split_controls_log(parent, controls_height=360):
     panes = tk.PanedWindow(parent, orient="vertical", bg="#253443", sashwidth=9,
                            sashrelief="flat", borderwidth=0, opaqueresize=True)
     panes.pack(fill="both", expand=True, pady=(6, 0))
     scroll = ttk.Frame(panes)
-    canvas = tk.Canvas(scroll, bg="#10151d", highlightthickness=0, height=360)
+    canvas = tk.Canvas(scroll, bg="#10151d", highlightthickness=0, height=controls_height)
     bar = ttk.Scrollbar(scroll, orient="vertical", command=canvas.yview)
     canvas.configure(yscrollcommand=bar.set)
     bar.pack(side="right", fill="y"); canvas.pack(side="left", fill="both", expand=True)
@@ -21,7 +21,7 @@ def split_controls_log(parent):
     # A dedicated scroll surface avoids stealing combobox/list mouse wheels.
     canvas.bind("<MouseWheel>", wheel)
     bottom = ttk.Frame(panes)
-    panes.add(scroll, minsize=100, height=360, stretch="always")
+    panes.add(scroll, minsize=100, height=controls_height, stretch="always")
     panes.add(bottom, minsize=110, height=180, stretch="always")
     return panes, controls, bottom
 

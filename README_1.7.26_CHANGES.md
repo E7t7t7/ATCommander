@@ -2,6 +2,13 @@
 
 Continues the functional 1.7.25 source. Earlier working combat, mail, training and bulk Nixon flows were preserved.
 
+## Events layout and workshop loading correction (published October 28)
+
+- Challenges, Clash and Melee now occupy compact labeled dropdown rows directly beneath Rumble, beside Siege. Removed the full-width lower section; tightened spacing and set the initial divider so the complete challenge card and its buttons fit above the log at the verified desktop size.
+- Opening Deck builder automatically loads cards and recipes, selects the active saved slot when no slot is chosen, fills character/BGE choices and the name, and loads that saved deck into the draft. Selecting another slot loads its draft. Empty-cache actions trigger loading first instead of silently returning; loading never performs a save or rename.
+- Reserved visible space for the owned-card and draft tables, with loading/working feedback on the refresh button. Missing optional catalogs still allow verified renaming with a clear explanation.
+- All **1,337 offline tests** pass. New real-Tk checks map the themed Events screen and verify that the complete challenge section fits above the visible log, and test open → background load → populated dropdowns and visible draft. A live read-only workshop check populated 82 character choices, 15 BGE/trait choices and 25 draft cards, with a saved name and no account writes.
+
 ## Resizable logs and deck workshop (October 27)
 
 - Events controls are vertically scrollable above a draggable divider, with a minimum visible activity pane. Larger control sections no longer push the log below the window. Shared activity panels, including Swole, add a separate resizable live-log window with a Follow latest switch and bounded rendering.

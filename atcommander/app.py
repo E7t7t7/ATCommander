@@ -176,6 +176,8 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         selected=self.nb.select()
         for tab,button in self.nav_buttons:
             button.configure(style="Nav.Active.TButton" if str(tab)==selected else "Nav.TButton")
+        if hasattr(self,"deck_builder_tab") and str(self.deck_builder_tab)==selected and hasattr(self,"deck_builder_status"):
+            self._builder_opened()
 
     def _build_game_panel(self):
         from .embedded_browser import configure
@@ -280,9 +282,8 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         self.log=self._logbox(self.arena_tab); self._log("Ready. API-only mode; no game rendering or animations.")
 
     def _build_events(self):
-        self.event_panes,event_controls,event_log_host=split_controls_log(self.events_tab)
-        ttk.Label(event_controls,text="Drag the divider above Activity to resize the live log. Scroll the controls when space is tight.").pack(anchor="w",pady=(4,0))
-        ttk.Label(event_controls,text="Rumble and Siege share the validated Item → Combo engine. Alternative options only change tie-breakers; they never abandon the Item → Combo sequence.").pack(anchor="w",pady=(10,8))
+        self.event_panes,event_controls,event_log_host=split_controls_log(self.events_tab,controls_height=580)
+        ttk.Label(event_controls,text="Choose your event below. Drag the divider above Activity to resize the log.").pack(anchor="w",pady=(4,8))
         wrap=ttk.Frame(event_controls); wrap.pack(fill="x"); wrap.columnconfigure(0,weight=1); wrap.columnconfigure(1,weight=1)
         self.rumble_status=tk.StringVar(value="Checking…"); self.rumble_deck=tk.StringVar(value="Current / unchanged"); self.rumble_offense_deck=tk.StringVar(value="Current / unchanged"); self.rumble_offense_hero=tk.StringVar(value="Current / unchanged"); self.rumble_logic=tk.StringVar(value=str(self.settings.get("rumble_logic",LOGIC_VALUES[0])))
         r=ttk.Frame(wrap,style="Card.TFrame",padding=12); r.grid(row=0,column=0,sticky="nsew",padx=(0,5)); ttk.Label(r,text="RUMBLE",style="Big.Card.TLabel").grid(row=0,column=0,columnspan=2,sticky="w"); ttk.Label(r,textvariable=self.rumble_status,style="Muted.Card.TLabel").grid(row=1,column=0,columnspan=2,sticky="w",pady=(0,8)); ttk.Label(r,text="Battle logic",style="Card.TLabel").grid(row=2,column=0,sticky="w"); ttk.Combobox(r,textvariable=self.rumble_logic,state="readonly",values=LOGIC_VALUES,width=34).grid(row=2,column=1,sticky="ew",padx=(8,0)); ttk.Label(r,text="Offense deck",style="Card.TLabel").grid(row=3,column=0,sticky="w",pady=(7,0)); self.rumble_offense_deck_combo=ttk.Combobox(r,textvariable=self.rumble_offense_deck,state="readonly",values=["Current / unchanged"],width=34); self.rumble_offense_deck_combo.grid(row=3,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Label(r,text="Offense hero",style="Card.TLabel").grid(row=4,column=0,sticky="w",pady=(7,0)); self.rumble_offense_hero_combo=ttk.Combobox(r,textvariable=self.rumble_offense_hero,state="readonly",values=["Current / unchanged"],width=34); self.rumble_offense_hero_combo.grid(row=4,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Label(r,text="Defense deck",style="Card.TLabel").grid(row=5,column=0,sticky="w",pady=(7,0)); self.rumble_deck_combo=ttk.Combobox(r,textvariable=self.rumble_deck,state="readonly",values=["Current / unchanged"],width=34); self.rumble_deck_combo.grid(row=5,column=1,sticky="ew",padx=(8,0),pady=(7,0)); ttk.Button(r,text="AUTO-COMPLETE RUMBLE",command=lambda:self.start_event("Rumble"),style="Accent.TButton").grid(row=6,column=0,columnspan=2,sticky="w",pady=(10,0)); r.columnconfigure(1,weight=1)
@@ -294,21 +295,31 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         ttk.Label(s,text="Attack target C",style="Card.TLabel").grid(row=9,column=0,sticky="w",pady=(7,0)); self.siege_target_c_combo=ttk.Combobox(s,textvariable=self.siege_target_c,state="readonly",values=["Any / none"],width=34); self.siege_target_c_combo.grid(row=9,column=1,sticky="ew",padx=(8,0),pady=(7,0))
         opts=ttk.Frame(s,style="Card.TFrame"); opts.grid(row=10,column=0,columnspan=2,sticky="w",pady=(7,0)); ttk.Checkbutton(opts,text="If A/B/C are down, hit any living island",variable=self.siege_fallback_any).pack(side="left"); ttk.Label(opts,text="Poll s",style="Card.TLabel").pack(side="left",padx=(12,4)); ttk.Entry(opts,textvariable=self.siege_poll,width=5).pack(side="left")
         bb=ttk.Frame(s,style="Card.TFrame"); bb.grid(row=11,column=0,columnspan=2,sticky="w",pady=(10,0)); ttk.Button(bb,text="SET DEFENSE ISLAND",command=self.apply_siege_island).pack(side="left",padx=(0,6)); ttk.Button(bb,text="ARM / AUTO-COMPLETE SIEGE",command=lambda:self.start_event("Siege"),style="Accent.TButton").pack(side="left"); ttk.Label(s,text="Commander applies defense, waits for the Battle phase, then uses direct signed API starts against A → B → C and any living fallback island if enabled.",style="Muted.Card.TLabel",wraplength=520).grid(row=12,column=0,columnspan=2,sticky="w",pady=(6,0)); s.columnconfigure(1,weight=1)
-        ch=ttk.Frame(event_controls,style="Card.TFrame",padding=10); ch.pack(fill="x",pady=(8,0))
+        ttk.Separator(r,orient="horizontal").grid(row=7,column=0,columnspan=2,sticky="ew",pady=(8,4))
+        ch=ttk.Frame(r,style="Card.TFrame"); ch.grid(row=8,column=0,columnspan=2,sticky="nsew")
+        self.challenge_card=ch
         self.challenge_status=tk.StringVar(value="Refresh Account to detect live Challenge / Clash / Melee events.")
         self.challenge_var=tk.StringVar(value="No detected challenge")
         self.challenge_logic=tk.StringVar(value=str(self.settings.get("challenge_logic",LOGIC_VALUES[0]))); self.challenge_offense_deck=tk.StringVar(value="Current / unchanged"); self.challenge_offense_hero=tk.StringVar(value="Current / unchanged")
         self.melee_character_first_var=tk.BooleanVar(value=self.settings.get("melee_character_first") is True)
-        ttk.Label(ch,text="CHALLENGES / CLASH / MELEE",style="Big.Card.TLabel").grid(row=0,column=0,columnspan=6,sticky="w")
-        ttk.Label(ch,textvariable=self.challenge_status,style="Muted.Card.TLabel").grid(row=1,column=0,columnspan=6,sticky="w",pady=(0,6))
-        ttk.Label(ch,text="Event",style="Card.TLabel").grid(row=2,column=0,sticky="w"); self.challenge_combo=ttk.Combobox(ch,textvariable=self.challenge_var,state="readonly",values=["No detected challenge"],width=38); self.challenge_combo.grid(row=3,column=0,sticky="ew",padx=(0,6))
-        ttk.Label(ch,text="Offense deck",style="Card.TLabel").grid(row=2,column=1,sticky="w"); self.challenge_offense_deck_combo=ttk.Combobox(ch,textvariable=self.challenge_offense_deck,state="readonly",values=["Current / unchanged"],width=28); self.challenge_offense_deck_combo.grid(row=3,column=1,sticky="ew",padx=6)
-        ttk.Label(ch,text="Offense hero",style="Card.TLabel").grid(row=2,column=2,sticky="w"); self.challenge_offense_hero_combo=ttk.Combobox(ch,textvariable=self.challenge_offense_hero,state="readonly",values=["Current / unchanged"],width=28); self.challenge_offense_hero_combo.grid(row=3,column=2,sticky="ew",padx=6)
-        ttk.Label(ch,text="Battle logic",style="Card.TLabel").grid(row=2,column=3,sticky="w"); ttk.Combobox(ch,textvariable=self.challenge_logic,state="readonly",values=LOGIC_VALUES,width=28).grid(row=3,column=3,sticky="ew",padx=6)
-        ttk.Button(ch,text="AUTO-COMPLETE SELECTED",style="Accent.TButton",command=self.start_challenge).grid(row=3,column=4,sticky="e",padx=(8,4)); ttk.Button(ch,text="STOP EVENT",command=self.stop_event).grid(row=3,column=5,sticky="e")
-        ttk.Checkbutton(ch,text="Character first (Melee only)",variable=self.melee_character_first_var,command=self._save_melee_character_first).grid(row=4,column=0,columnspan=3,sticky="w",pady=(6,0))
-        ttk.Label(ch,text="Direct signed API starts refresh the active challenge ID, level and energy before each fight.",style="Muted.Card.TLabel").grid(row=5,column=0,columnspan=6,sticky="w",pady=(6,0))
-        for i in range(4): ch.columnconfigure(i,weight=1)
+        ttk.Label(ch,text="Challenges, Clash & Melee",style="Big.Card.TLabel").grid(row=0,column=0,columnspan=2,sticky="w")
+        ttk.Label(ch,textvariable=self.challenge_status,style="Muted.Card.TLabel",wraplength=450).grid(row=1,column=0,columnspan=2,sticky="w",pady=(0,6))
+        ttk.Label(ch,text="Event",style="Card.TLabel").grid(row=2,column=0,sticky="w")
+        self.challenge_combo=ttk.Combobox(ch,textvariable=self.challenge_var,state="readonly",values=["No detected challenge"],width=28)
+        self.challenge_combo.grid(row=2,column=1,sticky="ew",padx=(8,0))
+        ttk.Label(ch,text="Offense deck",style="Card.TLabel").grid(row=3,column=0,sticky="w",pady=(3,0))
+        self.challenge_offense_deck_combo=ttk.Combobox(ch,textvariable=self.challenge_offense_deck,state="readonly",values=["Current / unchanged"],width=28)
+        self.challenge_offense_deck_combo.grid(row=3,column=1,sticky="ew",padx=(8,0),pady=(3,0))
+        ttk.Label(ch,text="Offense hero",style="Card.TLabel").grid(row=4,column=0,sticky="w",pady=(3,0))
+        self.challenge_offense_hero_combo=ttk.Combobox(ch,textvariable=self.challenge_offense_hero,state="readonly",values=["Current / unchanged"],width=28)
+        self.challenge_offense_hero_combo.grid(row=4,column=1,sticky="ew",padx=(8,0),pady=(3,0))
+        ttk.Label(ch,text="Battle logic",style="Card.TLabel").grid(row=5,column=0,sticky="w",pady=(3,0))
+        ttk.Combobox(ch,textvariable=self.challenge_logic,state="readonly",values=LOGIC_VALUES,width=28).grid(row=5,column=1,sticky="ew",padx=(8,0),pady=(3,0))
+        ttk.Checkbutton(ch,text="Character first (Melee only)",variable=self.melee_character_first_var,command=self._save_melee_character_first).grid(row=6,column=0,columnspan=2,sticky="w",pady=(3,0))
+        buttons=ttk.Frame(ch,style="Card.TFrame");buttons.grid(row=7,column=0,columnspan=2,sticky="w",pady=(4,0))
+        ttk.Button(buttons,text="AUTO-COMPLETE SELECTED",style="Accent.TButton",command=self.start_challenge).pack(side="left",padx=(0,8))
+        ttk.Button(buttons,text="STOP EVENT",command=self.stop_event).pack(side="left")
+        ch.columnconfigure(1,weight=1)
         self.event_log=self._logbox(event_log_host,height=7)
 
     def _build_swole(self):
