@@ -1,3 +1,5 @@
+Current release: **1.7.28**. See [earned rewards and deck selection changes](README_1.7.28_CHANGES.md).
+
 # AT Commander 1.7.27
 
 Run on Windows with:

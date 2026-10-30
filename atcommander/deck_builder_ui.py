@@ -41,6 +41,9 @@ class DeckBuilderMixin:
         ttk.Entry(rename, textvariable=self.builder_name, width=28).pack(side="left", padx=(0, 9))
         ttk.Button(rename, text="Rename saved deck", command=lambda: self._builder_launch("rename")).pack(side="left")
         ttk.Button(rename, text="Load slot into draft", command=self._builder_load_slot).pack(side="left", padx=9)
+        shortcuts=ttk.Frame(controls);shortcuts.pack(fill="x",pady=(0,6))
+        ttk.Button(shortcuts,text="Use current game deck",command=self._builder_current_deck).pack(side="left")
+        ttk.Button(shortcuts,text="Use selected deck for battles",command=self._builder_use_for_battles).pack(side="left",padx=8)
         options = ttk.LabelFrame(controls, text="Build from owned cards", padding=9); options.pack(fill="x")
         for column, (label, variable, values, width) in enumerate([
             ("Rule", self.builder_rule, RULES, 27), ("Character (optional)", self.builder_character, ("",), 23),
@@ -75,6 +78,20 @@ class DeckBuilderMixin:
         ttk.Label(top, textvariable=self.builder_draft_label).pack(side="left")
         ttk.Button(top, text="Remove selected", command=self._builder_remove_cards).pack(side="right")
         self.builder_draft_table = self._builder_table(right)
+
+    def _builder_current_deck(self):
+        self._builder_pick_active=True
+        self._builder_launch('load')
+
+    def _builder_use_for_battles(self):
+        from .deck_selection import OFFENSE_VARIABLES
+        target=self._builder_target()
+        if not target:return
+        label=next((label for label in self.builder_slot_combo['values'] if f'[ID {target}]' in label),None)
+        if not label:return
+        for variable in OFFENSE_VARIABLES:getattr(self,variable).set(label)
+        self._save_settings()
+        self.deck_builder_status.set('Selected this saved deck for Arena, Rumble, Siege and Challenge offense. Defense decks stay as selected.')
 
     def _builder_opened(self):
         if not getattr(self,'deck_builder_cache',None):
@@ -179,7 +196,8 @@ class DeckBuilderMixin:
         if action == "load":
             self.deck_builder_cache = answer; self.deck_builder_draft = []; self._builder_render_draft()
             self._apply_account_selectors(exact_decks(answer["snapshot"]))
-            if not self._builder_target():
+            if getattr(self,"_builder_pick_active",False) or not self._builder_target():
+                self._builder_pick_active=False
                 active=str((answer['snapshot'].get('user_data') or {}).get('active_deck') or '')
                 options=list(self.builder_slot_combo['values'])
                 chosen=next((label for label in options if f'[ID {active}]' in label),None)

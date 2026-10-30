@@ -34,6 +34,8 @@ from .research_center import ResearchCenterMixin
 from .client_update_ui import ClientUpdateMixin
 from .app_update_ui import AppUpdateMixin
 from .deck_builder_ui import DeckBuilderMixin
+from .reward_cleanup_ui import RewardCleanupMixin
+from .deck_selection import DECK_BINDINGS,label_parts,resolve_deck,saved_name_key
 from .log_view import logbox, split_controls_log
 from .adventure_catalog import build_adventure_campaign_rows, find_adventure_campaign
 from .shop_rewards import (api_rejected, extract_item_choices, item_choice_priority,
@@ -42,7 +44,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.27"
+VERSION="1.7.28"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -113,7 +115,7 @@ def _shop_warning16(response):
     return ("warning_16" in low or "try that again in a moment" in low or
             "please try that again" in low or "too fast" in low or "rate" in low)
 
-class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
+class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
     def __init__(self,root:tk.Tk):
         self.root=root; root.title(f"AT Commander {VERSION}"); root.geometry("1660x940"); root.minsize(1340,760); root.configure(bg="#0b1220")
         self._closing=False
@@ -548,6 +550,9 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         messagebox.showinfo("CM Discord bot setup","1. Create a bot application in Discord's Developer Portal and invite it to your server with bot + application.commands scopes.\n\n2. Enable Message Content Intent if you want !cm prefix commands. Slash /cm works without that prefix intent after command sync.\n\n3. Click START DISCORD BOT. On the first run, paste the bot token into the console when asked. AT Commander saves it in Windows Credential Manager via keyring; it is not written into the ZIP/source.\n\n4. Commands: !cm <combo name>, !cmshop, /cm, /cmshop. You can also @mention the bot followed by a combo name (for example: @AT Commander Wingnut Amy).\n\nThe bot must be running on this PC (or another machine with AT Commander credentials) to answer Discord requests.")
 
     def _build_inventory(self):
+        rewards=ttk.Frame(self.inventory_tab,padding=(8,5));rewards.pack(fill="x")
+        ttk.Label(rewards,text="Earned boxes & milestones").pack(side="left")
+        self._build_reward_controls(rewards)
         bar=ttk.Frame(self.inventory_tab); bar.pack(fill="x",pady=(10,7)); ttk.Label(bar,text="Current account inventory and resources",style="Header.TLabel").pack(side="left"); ttk.Button(bar,text="Refresh",command=self.refresh_inventory).pack(side="right")
         self.show_unknown_items=tk.BooleanVar(value=False); ttk.Checkbutton(bar,text="Show unresolved IDs",variable=self.show_unknown_items,command=self._render_inventory).pack(side="right",padx=(0,10))
         f=ttk.Frame(self.inventory_tab,style="Card.TFrame",padding=7); f.pack(fill="both",expand=True); cols=("type","name","count","id"); self.inventory_tree=ttk.Treeview(f,columns=cols,displaycolumns=("type","name","count"),show="headings",selectmode="browse")
@@ -847,11 +852,16 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
                 widget=getattr(self,widget_name,None);variable=getattr(self,variable_name,None)
                 if widget is None or variable is None:continue
                 previous=variable.get();identity=re.search(r"\[ID\s+([^\]]+)\]",previous)
+                deck_binding=dict(DECK_BINDINGS).get(variable_name)
+                if deck_binding:
+                    prior_id,prior_name=label_parts(previous)
+                    chosen=resolve_deck(prior_id or self.settings.get(deck_binding),prior_name or self.settings.get(saved_name_key(deck_binding)),rows)
+                    identity=re.search(r"\[ID\s+([^\]]+)\]",f"[ID {chosen}]") if chosen else None
                 widget["values"]=labels
                 matching=next((label for label in labels if identity and f"[ID {identity.group(1)}]" in label),None)
                 variable.set(matching or (previous if previous in labels else default))
         if decks is not None:
-            self.deck_rows=list(decks)
+            self.deck_rows=sorted(decks,key=lambda row:(str(row.get("name","")).casefold(),str(row.get("id",""))))
             apply(self.deck_rows,(("deck_combo","deck_var"),("rumble_deck_combo","rumble_deck"),
                 ("siege_deck_combo","siege_deck"),("rumble_offense_deck_combo","rumble_offense_deck"),
                 ("siege_offense_deck_combo","siege_offense_deck"),("challenge_offense_deck_combo","challenge_offense_deck"),("builder_slot_combo","builder_slot")))
@@ -863,6 +873,9 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
 
     def _selected_id(self,label,rows):
         if not label or label.startswith("Current / unchanged") or label.startswith("Select hero"):return None
+        if rows is getattr(self,"deck_rows",None):
+            identity,name=label_parts(label)
+            return resolve_deck(identity,name,rows)
         for r in rows:
             if f"[ID {r['id']}]" in label:return str(r['id'])
         return None
@@ -963,6 +976,8 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
         if self.adventure_runner:self.adventure_runner.stop();self._append(self.adventure_log,"Stopping Adventure farm…")
     def stop_all(self):
+        if hasattr(self,"reward_stop"):
+            self.reward_stop.set();self.reward_due=float("inf")
         if hasattr(self,"deck_builder_stop"):self.deck_builder_stop.set()
         if hasattr(self,"app_update_stop"):self.app_update_stop.set()
         if hasattr(self,"client_update_stop"):self.client_update_stop.set()
@@ -981,8 +996,10 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         self._closing=True;self.stop_all()
         self.root.title(f"AT Commander {VERSION} — stopping active work…")
         def settle():
+            reward_thread=getattr(self,"reward_thread",None)
             research_thread=getattr(self,"research_thread",None)
             busy=getattr(self,"research_busy",False) or getattr(self,"command_busy",False)
+            busy=busy or reward_thread is not None and reward_thread.is_alive()
             busy=busy or research_thread is not None and research_thread.is_alive()
             browser_thread=getattr(self,"game_panel_thread",None)
             busy=busy or browser_thread is not None and browser_thread.is_alive()
@@ -2092,8 +2109,10 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
         except Exception:pass
 
     def _save_settings(self):
+        names={saved_name_key(key):label_parts(getattr(self,var).get())[1] or "" for var,key in DECK_BINDINGS}
         save_settings({
             **load_settings(),
+            **names,
             "move_delay":self.delay_var.get(),"battle_delay":self.battle_delay_var.get(),
             "arena_limit":self.limit_var.get(),"arena_reserve_energy":self.reserve_var.get(),
             "arena_continuous":bool(self.continuous_var.get()),"auto_watch_ads":bool(self.auto_ads_var.get()),
@@ -2161,6 +2180,7 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
             try:self.root.after(100,self._drain_events)
             except tk.TclError:pass
     def _handle_event(self,e):
+        if RewardCleanupMixin._reward_event(self,e):return
         if DeckBuilderMixin._deck_builder_event(self,e):return
         if AppUpdateMixin._app_update_event(self,e):return
         if ClientUpdateMixin._client_update_event(self,e):return
@@ -2542,6 +2562,7 @@ class ATCommanderApp(DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCe
     def _reset_buttons(self):self.start_btn.configure(state="normal");self.pause_btn.configure(state="disabled",text="Pause");self.stop_btn.configure(state="disabled");self.paused=False
     def _tick_clock(self):
         if self._closing:return
+        if hasattr(self,"reward_auto"):self._reward_tick()
         if hasattr(self,"command_schema"):self._command_tick()
         if hasattr(self,"research_status"):self._research_tick()
         self.root.after(1000,self._tick_clock)
