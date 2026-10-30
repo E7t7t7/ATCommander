@@ -8,9 +8,10 @@ import sys
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 from atcommander.app_updater import public_path, validate_manifest, REPOSITORY, MANIFEST
+from atcommander import __version__
 
 
-def build(root=ROOT, version="1.7.26"):
+def build(root=ROOT, version=__version__):
     root = Path(root)
     candidates = [p for p in root.iterdir() if p.is_file()]
     for folder in ("atcommander", "tests", "launcher", "tools"):
@@ -28,7 +29,7 @@ def build(root=ROOT, version="1.7.26"):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--version", default="1.7.26")
+    parser.add_argument("--version", default=__version__)
     args = parser.parse_args()
     manifest = build(version=args.version)
     print(f"Verified public manifest: {len(manifest['files'])} files, version {manifest['version']}.")

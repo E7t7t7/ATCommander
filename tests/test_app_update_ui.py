@@ -37,7 +37,7 @@ class AppUpdateUiTests(unittest.TestCase):
         self.assertEqual(app.app_update_status.get(), "Checking Commander on GitHub…")
         app._app_update_event(app.events.get_nowait())
         self.assertEqual(app.app_update_status.get(), "Ready to reopen.")
-        self.assertEqual(app.app_update_button.settings["text"], "Update Commander")
+        self.assertEqual(app.app_update_button.settings["text"], "Restart to apply")
 
     def test_repeat_click_cancels_without_second_worker(self):
         app = UI(); app.app_update_thread = SimpleNamespace(is_alive=lambda: True)
@@ -68,6 +68,19 @@ class AppUpdateUiTests(unittest.TestCase):
 
     def test_other_events_are_not_consumed(self):
         self.assertFalse(UI()._app_update_event({"kind": "log"}))
+
+    def test_already_installed_files_offer_restart_if_running_code_is_older(self):
+        app=UI()
+        app._app_update_event({'kind':'app_update_done','ready':False,'restart_required':True,'message':'Restart to load changed files.'})
+        self.assertTrue(app.app_update_restart_pending)
+        self.assertEqual(app.app_update_button.settings['text'],'Restart to apply')
+
+    def test_restart_action_stops_through_normal_close_without_second_download(self):
+        app=UI();app.app_update_restart_pending=True;closed=[]
+        app.close_app=lambda:closed.append(True)
+        with patch('atcommander.app_update_ui.prepare_update',side_effect=AssertionError('No second download')):
+            app._start_app_update()
+        self.assertTrue(app._restart_requested);self.assertEqual(closed,[True])
 
 
 if __name__ == "__main__": unittest.main()

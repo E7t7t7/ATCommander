@@ -9,6 +9,8 @@ if __name__ == "__main__":
         raise SystemExit(1)
     try:
         from atcommander.app import main
-        raise SystemExit(main())
-    finally:
+        from atcommander.app_restart import run_application
+    except Exception:
         _application_lock.close()
+        raise
+    raise SystemExit(run_application(Path(__file__).resolve().parent,main,_application_lock))

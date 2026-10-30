@@ -42,7 +42,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.26"
+VERSION="1.7.27"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -2561,7 +2561,7 @@ def main():
         root=tk.Tk();app=ATCommanderApp(root)
         runtime.attach(root,lambda category:app.events.put({"kind":"log","message":
             f"A GUI callback stopped ({category}); source locations were recorded in atcommander_crash.log."}))
-        root.protocol("WM_DELETE_WINDOW",app.close_app);root.mainloop();return 0
+        root.protocol("WM_DELETE_WINDOW",app.close_app);root.mainloop();return 75 if getattr(app,'_restart_requested',False) else 0
     finally:
         if root is not None:
             try:root.destroy()

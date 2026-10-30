@@ -4,6 +4,8 @@ import json
 import multiprocessing
 from pathlib import Path
 import stat
+import py_compile
+import os
 import re
 import tempfile
 import unittest
@@ -240,6 +242,34 @@ class AppUpdaterTests(unittest.TestCase):
             self.assertNotIn('expected', value)
             self.assertTrue(all(re.fullmatch(r'[a-f0-9]{64}', item) for item in value['expected_sha256'].values()))
             self.assertTrue(str(value.get('identity') or value.get('user_id')).startswith(('fixture-', 'synthetic-')))
+
+    def test_current_disk_files_do_not_hide_older_running_sources(self):
+        self.prepare();updater.apply_pending_update(self.root)
+        running=updater.runtime_fingerprint(self.root)
+        self.files['app.py']=b'# newer source while old app stays open\n'
+        self.manifest['files']['app.py']=digest(self.files['app.py'])
+        self.prepare();updater.apply_pending_update(self.root)
+        answer=updater.prepare_update(self.root,fetch=fake_fetch(self.files,self.manifest),running_fingerprint=running)
+        self.assertFalse(answer['ready']);self.assertTrue(answer['restart_required'])
+        self.assertNotIn('up to date',answer['message'])
+
+    def test_matching_loaded_and_installed_sources_are_up_to_date(self):
+        self.prepare();updater.apply_pending_update(self.root)
+        answer=updater.prepare_update(self.root,fetch=fake_fetch(self.files,self.manifest),running_fingerprint=updater.runtime_fingerprint(self.root))
+        self.assertFalse(answer.get('restart_required',False));self.assertIn('up to date',answer['message'])
+
+    def test_source_update_removes_stale_same_timestamp_and_size_bytecode(self):
+        self.write_live()
+        source=self.root/'atcommander/app.py'
+        old=b'VALUE = "old"\n';new=b'VALUE = "new"\n'
+        source.write_bytes(old);original_time=int(source.stat().st_mtime)
+        cache=Path(py_compile.compile(str(source),doraise=True))
+        unrelated=cache.parent/'unrelated.cpython-314.pyc';unrelated.write_bytes(b'keep')
+        self.files['atcommander/app.py']=new;self.manifest['files']['atcommander/app.py']=digest(new)
+        self.prepare();updater.apply_pending_update(self.root)
+        os.utime(source,(original_time,original_time))
+        self.assertFalse(cache.exists());self.assertEqual(unrelated.read_bytes(),b'keep')
+        self.assertEqual(source.read_bytes(),new)
 
 
 if __name__ == "__main__": unittest.main()

@@ -179,7 +179,19 @@ class ApplicationLock:
     def __exit__(self, *args): self.close()
 
 
-def prepare_update(root=None, *, progress=lambda text: None, should_stop=lambda: False, fetch=None):
+def runtime_fingerprint(root):
+    """Snapshot public runtime sources when this GUI starts; never account data."""
+    root=Path(root)
+    manifest=validate_manifest(_load(_safe_path(root,MANIFEST)))
+    sources=[]
+    for relative in sorted(manifest['files']):
+        if (relative.endswith(('.py','.pyw')) and not relative.startswith(('tests/','tools/'))) or relative=='requirements.txt':
+            path=_safe_path(root,relative)
+            sources.append((relative,_hash(path.read_bytes()) if path.is_file() else 'missing'))
+    return _hash(json.dumps(sources,separators=(',',':')).encode())
+
+
+def prepare_update(root=None, *, progress=lambda text: None, should_stop=lambda: False, fetch=None, running_fingerprint=None):
     """Download and validate only. Never change the running application's files."""
     root = Path(root or Path(__file__).resolve().parent.parent)
     fetch = fetch or _download
@@ -210,6 +222,8 @@ def prepare_update(root=None, *, progress=lambda text: None, should_stop=lambda:
         if all(_matches(_safe_path(root, path), digest) for path, digest in manifest["files"].items()):
             _cancel(should_stop)
             (state / "pending.json").unlink(missing_ok=True)
+            if running_fingerprint and runtime_fingerprint(root)!=running_fingerprint:
+                return {'ready':False,'restart_required':True,'message':f"Commander {manifest['version']} is installed. Restart to load the changed files.",'commit':commit}
             return {"ready": False, "message": f"Commander {manifest['version']} is up to date.", "commit": commit}
         progress(f"Downloading Commander {manifest['version']}…")
         archive = fetch(f"https://codeload.github.com/{REPOSITORY}/zip/{commit}", MAX_DOWNLOAD, should_stop)
@@ -225,7 +239,7 @@ def prepare_update(root=None, *, progress=lambda text: None, should_stop=lambda:
             # Only remove the freshly allocated private staging directory.
             shutil.rmtree(destination)
             raise
-        return {"ready": True, "message": f"Commander {manifest['version']} is ready. Close Commander after your active work finishes, then reopen it to install.", "commit": commit}
+        return {"ready": True, "restart_required":True,"message": f"Commander {manifest['version']} is ready. Select Restart to apply; active work will stop safely first.", "commit": commit}
 
 
 def _matches(path, digest):
@@ -281,6 +295,17 @@ def _replace(source, target):
     os.replace(temp, target)
 
 
+def invalidate_bytecode(root,relative):
+    """Discard only generated caches for the replaced public Python source."""
+    if not relative.endswith(('.py','.pyw')):return
+    source=_safe_path(root,relative)
+    directory=_safe_path(root,(source.parent.relative_to(Path(root).resolve())/'__pycache__').as_posix())
+    if not directory.exists():return
+    for cache in directory.glob(source.stem+'.*.pyc'):
+        checked=_safe_path(root,cache.relative_to(Path(root).resolve()).as_posix())
+        if checked.is_file():checked.unlink()
+
+
 def _recover(root, state):
     journal = state / "transaction.json"
     if not journal.exists(): return
@@ -308,6 +333,7 @@ def _recover(root, state):
         target = _safe_path(root, relative)
         if saved["before"] is None: target.unlink(missing_ok=True)
         else: _replace(_safe_path(backup, relative), target)
+        invalidate_bytecode(root,relative)
     journal.unlink()
     (state / "pending.json").unlink(missing_ok=True)
 
@@ -344,6 +370,7 @@ def apply_pending_update(root):
         try:
             for relative in changes:
                 _replace(_safe_path(staged, relative), _safe_path(root, relative))
+                invalidate_bytecode(root,relative)
             for relative, digest in manifest["files"].items():
                 if not _matches(_safe_path(root, relative), digest): raise UpdateError("The installed update failed verification.")
             _json(state / "installed.json", {"commit": commit, "version": manifest["version"]})

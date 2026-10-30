@@ -5,8 +5,8 @@ The **Update Commander** button downloads app updates from
 It is separate from **Check / update game client**, which checks compatibility
 with the game's current public release.
 
-Click **Update Commander**. If an update is ready, finish or stop your active
-work, close Commander normally, then reopen **AT Commander.exe**. Installation
+Click **Update Commander**. If an update is ready, click **Restart to apply**.
+Commander stops active work through its normal close path, then reopens the EXE. Installation
 happens before the interface opens. No Git installation or GitHub login is
 needed. There is no automatic game action, forced restart, or background poll.
 **Stop all**, Cancel download and closing stop an unfinished download.
@@ -33,7 +33,7 @@ Backups remain local; they are excluded from Git and release ZIPs.
    files from an account's live installation into the checkout.
 2. Run `python tools/make_update_manifest.py`. This updates
    `commander-update.json` using the public-file allowlist. The version defaults
-   to 1.7.26; use `--version X.Y.Z` for a later named release.
+   to the package version; use `--version X.Y.Z` for a later named release.
 3. Commit the changed public files and manifest together, then push `main`.
 
 The updater checks actual file hashes, so fixes can be distributed even when

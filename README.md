@@ -1,10 +1,12 @@
-# AT Commander 1.7.26
+# AT Commander 1.7.27
 
 Run on Windows with:
 
 **Double-click `AT Commander.exe` in the extracted folder.** It opens the dark desktop app without a command window. On first use it prepares the Python environment through a setup window. Python 3.10+ with Tkinter must be installed. Existing credentials and settings are reused.
 
 **Update Commander** at the top of the app downloads updates from [your GitHub repository](https://github.com/E7t7t7/ATCommander). After it reports ready, close Commander normally once active work finishes, then reopen the EXE to install. Downloads are pinned to one commit and verified against its public-file manifest. Updates preserve account data, preferences, research queues and the local browser profile; replacements are backed up and failed/interrupted installs roll back. The button does not interrupt running battles or start game actions. It is separate from the game-client compatibility check below. See `GITHUB_UPDATES.md` for publishing future builds.
+
+**1.7.27 update behavior:** the update bar and window title show the running release. Downloaded updates, or newer files installed while the app remained open, offer **Restart to apply**. Commander safely stops active work and reopens through its normal starter after releasing the application lock. An old open app no longer counts as current merely because its disk files are current. See `README_1.7.27_CHANGES.md`. For this first upgrade from 1.7.26, close fully and reopen the EXE once; existing folder/ZIP names may still contain 1.7.26.
 
 The extracted `ATCommander_1.7.26` folder is the current source of truth. It continues the functional 1.7.25 source derived from the extracted 1.7.23 folder. All older change notes remain included. See `README_1.7.26_CHANGES.md`, `COMMAND_REFERENCE.md` and `BENDER_PARITY.md` for changes, commands and remaining verification gaps.
 
@@ -62,7 +64,7 @@ Arena has an optional **Bypass 30-turn cutoff** checkbox for combo events. It de
 
 Local guild reports and defense plans support HTML/CSV/JSON workflows. Card maps support SVG/HTML/PNG/JPEG and three layouts, using exact selected-level stats. Deck swap/restore validates both sides, keeps backups and verifies each write from fresh state.
 
-The current source passes **1,339 offline regression tests**, including 28 new deck-workshop/log/selector checks, 30 application-updater/privacy checks and 135 Adventure checks for island scanning, native progress, completion sequencing, energy limits, capped-farm recovery, retained unknown outcomes, changed journal records, pause/error messages, Stop, GUI controls and saved farming preferences. Coverage also includes 34 Research controls/recovery checks, Melee character-first sequencing/targeting, saved preferences and mode isolation, signed challenge moves, Swole score verification and remaining-fight preservation, embedded browser ownership/cleanup, startup popup guards, large research cancellation, daily automation, research ads, guild reports, deck safety and CM lookup fixes.
+The current source passes **1,348 offline regression tests**, including 28 new deck-workshop/log/selector checks, 39 application-updater/privacy/restart checks and 135 Adventure checks for island scanning, native progress, completion sequencing, energy limits, capped-farm recovery, retained unknown outcomes, changed journal records, pause/error messages, Stop, GUI controls and saved farming preferences. Coverage also includes 34 Research controls/recovery checks, Melee character-first sequencing/targeting, saved preferences and mode isolation, signed challenge moves, Swole score verification and remaining-fight preservation, embedded browser ownership/cleanup, startup popup guards, large research cancellation, daily automation, research ads, guild reports, deck safety and CM lookup fixes.
 
 ## Important
 
