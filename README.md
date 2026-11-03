@@ -1,4 +1,4 @@
-Current release: **1.7.28**. See [earned rewards and deck selection changes](README_1.7.28_CHANGES.md).
+Current release: **1.7.29**. See [Discord phone control, weekday timers and Adventure read recovery](README_1.7.29_CHANGES.md).
 
 # AT Commander 1.7.27
 

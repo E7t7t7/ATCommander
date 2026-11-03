@@ -34,6 +34,7 @@ from .research_center import ResearchCenterMixin
 from .client_update_ui import ClientUpdateMixin
 from .app_update_ui import AppUpdateMixin
 from .deck_builder_ui import DeckBuilderMixin
+from .remote_center import RemoteCenterMixin
 from .reward_cleanup_ui import RewardCleanupMixin
 from .deck_selection import DECK_BINDINGS,label_parts,resolve_deck,saved_name_key
 from .log_view import logbox, split_controls_log
@@ -44,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.28"
+VERSION="1.7.29"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -115,7 +116,7 @@ def _shop_warning16(response):
     return ("warning_16" in low or "try that again in a moment" in low or
             "please try that again" in low or "too fast" in low or "rate" in low)
 
-class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
+class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUpdateMixin,CommandCenterMixin,ResearchCenterMixin):
     def __init__(self,root:tk.Tk):
         self.root=root; root.title(f"AT Commander {VERSION}"); root.geometry("1660x940"); root.minsize(1340,760); root.configure(bg="#0b1220")
         self._closing=False
@@ -153,8 +154,9 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
         self.commands_tab=ttk.Frame(self.nb); self.routines_tab=ttk.Frame(self.nb)
         self.research_tab=ttk.Frame(self.nb);self.nb.add(self.research_tab,text="Research")
         self.nb.add(self.commands_tab,text="Command Center"); self.nb.add(self.routines_tab,text="Automation")
+        self.remote_tab=ttk.Frame(self.nb);self.nb.add(self.remote_tab,text="Discord & timers")
         self.nav_buttons=[]
-        groups=[("Daily play",[("Automation",self.routines_tab),("Research",self.research_tab)]),
+        groups=[("Daily play",[("Automation",self.routines_tab),("Discord & timers",self.remote_tab),("Research",self.research_tab)]),
                 ("Battles",[("Arena",self.arena_tab),("Adventure",self.adventure_tab),("Events",self.events_tab),("Swole",self.swole_tab)]),
                 ("Collection",[("Deck builder",self.deck_builder_tab),("CM Reviews",self.cm_tab),("Inventory / Mail",self.inventory_tab)]),
                 ("More",[("Stats",self.stats_tab),("Command Center",self.commands_tab),("Tools / Ads",self.diag_tab)])]
@@ -171,6 +173,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
         self._build_deck_builder()
         self._build_research_center()
         self._build_game_panel()
+        self._build_remote_center()
         from .appearance import soften_labels
         soften_labels(self.root);self._sync_navigation()
 
@@ -976,6 +979,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
         if self.adventure_runner:self.adventure_runner.stop();self._append(self.adventure_log,"Stopping Adventure farm…")
     def stop_all(self):
+        RemoteCenterMixin._remote_stop_timers(self)
         if hasattr(self,"reward_stop"):
             self.reward_stop.set();self.reward_due=float("inf")
         if hasattr(self,"deck_builder_stop"):self.deck_builder_stop.set()
@@ -994,6 +998,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
     def close_app(self):
         if self._closing:return
         self._closing=True;self.stop_all()
+        if getattr(self,"discord_connection",None):self.discord_connection.close()
         self.root.title(f"AT Commander {VERSION} — stopping active work…")
         def settle():
             reward_thread=getattr(self,"reward_thread",None)
@@ -1029,7 +1034,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
                 self._game_panel_closed=True;configure(None);self.root.destroy()
         settle()
 
-    def start_event(self,mode):
+    def start_event(self,mode,*,scheduled=False):
         if self._command_blocks_runner():return
         if self.event_runner and getattr(self.event_runner,"running",False):messagebox.showinfo("AT Commander","An event automation is already running. Stop it first.");return
         p=load_profiles(); key=mode.lower()
@@ -1045,7 +1050,8 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
             except Exception:poll=60
             if not targets and not fallback:
                 messagebox.showinfo("Siege","Choose at least one attack target or enable the any-living-island fallback.");return
-        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll);self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
+        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll,siege_once=scheduled);self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
+        return True
 
     def _selected_challenge_row(self):
         label=self.challenge_var.get()
@@ -2180,6 +2186,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
             try:self.root.after(100,self._drain_events)
             except tk.TclError:pass
     def _handle_event(self,e):
+        if hasattr(self,"discord_connection") and self._remote_observe(e):return
         if RewardCleanupMixin._reward_event(self,e):return
         if DeckBuilderMixin._deck_builder_event(self,e):return
         if AppUpdateMixin._app_update_event(self,e):return
@@ -2562,6 +2569,7 @@ class ATCommanderApp(RewardCleanupMixin,DeckBuilderMixin,AppUpdateMixin,ClientUp
     def _reset_buttons(self):self.start_btn.configure(state="normal");self.pause_btn.configure(state="disabled",text="Pause");self.stop_btn.configure(state="disabled");self.paused=False
     def _tick_clock(self):
         if self._closing:return
+        if hasattr(self,"discord_connection"):self._remote_tick()
         if hasattr(self,"reward_auto"):self._reward_tick()
         if hasattr(self,"command_schema"):self._command_tick()
         if hasattr(self,"research_status"):self._research_tick()

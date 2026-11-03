@@ -90,8 +90,8 @@ class ClientUpdateUiTests(unittest.TestCase):
                     try:root.after_cancel(identity)
                     except tk.TclError:pass
             self.addCleanup(cancel_callbacks)
-            self.assertEqual(len(app.nb.tabs()),12)
-            self.assertEqual(len(app.nav_buttons),12)
+            self.assertEqual(len(app.nb.tabs()),13)
+            self.assertEqual(len(app.nav_buttons),13)
             self.assertEqual(app.client_update_button.cget("text"),"Check / update game client")
             self.assertEqual(app.app_update_button.cget("text"),"Update Commander")
             self.assertEqual(app.builder_rule.get(),"Balanced recommendation")

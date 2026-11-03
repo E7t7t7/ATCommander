@@ -15,8 +15,8 @@ class EventBattleRunner:
                  defense_deck_id: str|None=None, island_id: str|None=None, logic: str="Item → Combo (default)",
                  offense_deck_id: str|None=None, offense_hero_id: str|None=None,
                  auto_watch_ads: bool=False, event: Callable[[dict[str,Any]],None]|None=None,
-                 siege_target_slots: list[str]|None=None, siege_fallback_any: bool=True, siege_poll_seconds: int=60):
-        self.mode=mode
+                 siege_target_slots: list[str]|None=None, siege_fallback_any: bool=True, siege_poll_seconds: int=60,*,siege_once:bool=False):
+        self.mode=mode;self.siege_once=bool(siege_once)
         self.move_delay=max(.05,float(move_delay)); self.battle_delay=max(.1,float(battle_delay))
         self.defense_deck_id=defense_deck_id or None; self.island_id=island_id or None
         self.offense_deck_id=offense_deck_id or None; self.offense_hero_id=offense_hero_id or None; self.auto_watch_ads=bool(auto_watch_ads)
@@ -101,7 +101,18 @@ class EventBattleRunner:
 
     def _run(self):
         try:
-            c=ATClient(load_credentials()); self._client=c; init=c.init(); ad_preflight(c, init, lambda m:self._emit("log",message=m), auto_watch=self.auto_watch_ads); key=self.mode.lower()
+            c=ATClient(load_credentials());self._client=c;init=c.init();key=self.mode.lower()
+            if key=="siege" and self.siege_once:
+                status=c.get_guild_siege_status()
+                if not isinstance(status,dict) or status.get("result") is False:raise ATApiError("Scheduled Siege status is unavailable; no attack was started.")
+                phase,enemy=self._siege_status_rows(status)
+                if phase.get("result") is False:raise ATApiError("Scheduled Siege status was rejected; no attack was started.")
+                try:ready=int(phase.get("phase",-1))==2 and int(phase.get("num_attacks",0))>0 and self._choose_siege_target(enemy)is not None
+                except (ValueError,TypeError):ready=False
+                if not ready:
+                    self._emit("log",message="Siege has no available attack phase/attacks/target. Waiting for the next timer check.")
+                    self._emit("finished",stopped=False,lifetime=self.lifetime.to_dict());return
+            ad_preflight(c,init,lambda m:self._emit("log",message=m),auto_watch=self.auto_watch_ads)
             if self.offense_deck_id or self.offense_hero_id:
                 c.apply_selection(deck_id=self.offense_deck_id, hero_id=self.offense_hero_id)
                 self._emit("log",message=f"{self.mode} offense deck/hero applied before battle run.")
@@ -121,11 +132,13 @@ class EventBattleRunner:
                     if not self._wait():break
                     status=c.get_guild_siege_status()
                     if not isinstance(status,dict) or status.get("result") is False:
+                        if self.siege_once:raise ATApiError("Scheduled Siege status was unavailable; timer paused without an attack.")
                         msg="Siege status refresh was rejected or unavailable; waiting for a fresh status before considering an attack."
                         if msg!=last_wait:self._emit("log",message=msg);last_wait=msg
                         self._stop.wait(self.siege_poll_seconds);continue
                     st, enemy=self._siege_status_rows(status)
                     if st.get("result") is False:
+                        if self.siege_once:raise ATApiError("Scheduled Siege status was rejected; timer paused without an attack.")
                         self._stop.wait(self.siege_poll_seconds);continue
                     try: phase=int(st.get("phase")) if st.get("phase") is not None else None
                     except Exception: phase=None
@@ -137,6 +150,8 @@ class EventBattleRunner:
                     if phase in (3,4):
                         self._emit("log",message="Siege battle phase has finished; armed run complete.");break
                     if phase!=2:
+                        if self.siege_once:
+                            self._emit("log",message="Siege is outside the attack phase; next timer check will try again.");break
                         msg=f"Siege armed: phase {phase}; waiting for the attack phase."
                         if msg!=last_wait:self._emit("log",message=msg);last_wait=msg
                         self._stop.wait(self.siege_poll_seconds);continue
@@ -149,6 +164,7 @@ class EventBattleRunner:
                     self._emit("log",message=f"Siege target: {target.get('name')} (slot {slot}, HP {target.get('hp')}).")
                     response,state=self._try_siege_start(c,st,target)
                     if not state or not state.get("battle_id"):
+                        if self.siege_once:raise ATApiError("Scheduled Siege returned no accepted fight; review before restarting its timer.")
                         self._stop.wait(self.siege_poll_seconds);continue
                     n+=1;opp=c.opponent_name(state);self._emit("battle_start",number=n,opponent=opp)
                     won,moves=self._drive(c,state,n,opp);self.lifetime.record_battle(self.mode,won);self._emit("battle_end",number=n,opponent=opp,won=won,moves=moves,lifetime=self.lifetime.to_dict());time.sleep(self.battle_delay)

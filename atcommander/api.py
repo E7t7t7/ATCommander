@@ -23,10 +23,12 @@ class ATNetworkError(ATApiError):
                            "TooManyRedirects","ChunkedEncodingError","ContentDecodingError",
                            "RetryError","RequestException"})
 
-    def __init__(self,category="ReadTimeout",*,retryable_read=True):
+    def __init__(self,category="ReadTimeout",*,retryable_read=True,http_status=None):
         self.category=category if isinstance(category,str) and category in self._CATEGORIES else "RequestException"
         self.retryable_read=retryable_read is True
-        super().__init__(f"Network/API request failed ({self.category}).")
+        self.http_status=http_status if type(http_status) is int and 100<=http_status<=599 else None
+        detail=f" HTTP {self.http_status}" if self.category=="HTTPError" and self.http_status else ""
+        super().__init__(f"Network/API request failed ({self.category}{detail}).")
 
 
 def _network_error(error):
@@ -39,7 +41,7 @@ def _network_error(error):
     if isinstance(error,exceptions.HTTPError):
         response=getattr(error,"response",None)
         status=getattr(response,"status_code",None) if response is not None else None
-        return ATNetworkError("HTTPError",retryable_read=type(status) is int and status in {408,429,500,502,503,504})
+        return ATNetworkError("HTTPError",retryable_read=type(status) is int and status in {408,429,500,502,503,504},http_status=status)
     for name in ("ReadTimeout","ConnectTimeout","Timeout","ProxyError","ConnectionError"):
         if isinstance(error,getattr(exceptions,name)):
             return ATNetworkError(name,retryable_read=True)

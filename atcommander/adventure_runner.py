@@ -1,7 +1,7 @@
 from __future__ import annotations
 import threading, time
 from typing import Any, Callable
-from .api import ATClient, ATApiError
+from .api import ATClient, ATApiError, ATNetworkError
 from .credentials import load_credentials
 from .strategy import SingleComboRushPolicy
 from .preflight import ad_preflight
@@ -9,6 +9,10 @@ from .browser_bridge import browser_call_profile
 from .adventure_completion import scan_adventure_islands,mission_progress,read_adventure_energy
 from .adventure_run_state import AdventureRunState
 from .shop_rewards import api_rejected
+
+class AdventureReadStopped(Exception):
+    pass
+
 
 class AdventureRunner:
     """Farm an explicit Adventure mission ID with the proven Item→Combo policy."""
@@ -38,6 +42,25 @@ class AdventureRunner:
             kw.update(paused=True,pause_reason=self._pause_reason)
         try:self.event({"kind":kind,"mode":"Adventure",**kw})
         except Exception:pass
+    def _read(self,label,callback,*,finish_current=False):
+        """Retry only named, read-only operations; never a start or card play."""
+        delays=(5,15,30)
+        for attempt in range(4):
+            if self._stop.is_set() and not (finish_current and attempt==0):raise AdventureReadStopped()
+            try:return callback()
+            except ATNetworkError as error:
+                if not error.retryable_read or attempt==3:
+                    self._emit("log",message=f"Adventure {label} failed: {error} Saved battle state was kept.")
+                    raise
+                delay=delays[attempt]
+                self._emit("log",message=f"Adventure {label}: {error} Retrying this read in {delay}s ({attempt+1}/3).")
+                if self._stop.wait(delay):raise AdventureReadStopped()
+
+    def _send_once(self,label,callback):
+        try:return callback()
+        except ATNetworkError as error:
+            raise ATApiError(f"Adventure {label}: {error} The request was not repeated; check the current fight before resuming.") from None
+
     @staticmethod
     def _energy(init):
         ud=(init or {}).get("user_data") or {}
@@ -60,27 +83,27 @@ class AdventureRunner:
             d=self.policy.choose(cur)
             if d is None: raise ATApiError("No legal Adventure play could be derived from battle state.")
             self._emit("move",battle=battle_no,move=move,action=d.action,card_uid=d.card_uid,card_uid2=d.card_uid2,reason=d.reason)
-            r=self._client.play_battlefield_card(battle_id=bid,host_id=hid,card_uid=d.card_uid,card_uid2=d.card_uid2); last=r
+            r=self._send_once("card play",lambda:self._client.play_battlefield_card(battle_id=bid,host_id=hid,card_uid=d.card_uid,card_uid2=d.card_uid2)); last=r
             nxt=self._client.extract_battle_data(r)
             if self._client.battle_finished(r,nxt): return self._client.extract_outcome(r,nxt),move
             cur=nxt or cur; bid=cur.get("battle_id",bid); hid=cur.get("host_id",hid); time.sleep(self.move_delay)
         raise ATApiError("Safety stop: Adventure battle exceeded 30 moves.")
     def _run(self):
         try:
-            self._client=ATClient(load_credentials(),timeout=25); init=self._client.init()
+            self._client=ATClient(load_credentials(),timeout=25); init=self._read("account refresh",self._client.init)
             if self.complete_islands:
                 self._run_completion(init);return
             ad_preflight(self._client,init,lambda m:self._emit("log",message=m), auto_watch=self.auto_watch_ads)
             n=0; self._emit("status",text=f"Farming mission {self.mission_id}")
             while not self._stop.is_set() and (self.battle_limit==0 or n<self.battle_limit):
                 try:
-                    cur=self._client.init(); en,max_en=self._energy(cur)
+                    cur=self._read("account refresh",self._client.init); en,max_en=self._energy(cur)
                     if en is not None:
                         self._emit("adventure_energy",current=en,max=max_en,reserve=self.reserve)
                         if en<=self.reserve:
                             if self.continuous:self._stop.wait(60); continue
                             self._emit("log",message=f"Adventure energy {en} reached reserve {self.reserve}."); break
-                    r=self._client.call("startMission",{"mission_id":str(self.mission_id)})
+                    r=self._send_once("battle start",lambda:self._client.call("startMission",{"mission_id":str(self.mission_id)}))
                 except ATApiError as exc:
                     if any(x in str(exc).lower() for x in ("energy","not enough","mission")):
                         self._emit("log",message=f"Adventure stopped: {exc}"); break
@@ -107,6 +130,7 @@ class AdventureRunner:
                 won,moves=self._drive(state,n); self._emit("battle_end",number=n,opponent=opp,won=won,moves=moves)
                 if self.battle_limit==0 or n<self.battle_limit:self._stop.wait(self.battle_delay)
             self._emit("finished",stopped=self._stop.is_set())
+        except AdventureReadStopped:self._emit("finished",stopped=True)
         except Exception as e:self._emit("fatal",message=str(e))
 
     def _scan(self,live):
@@ -114,7 +138,7 @@ class AdventureRunner:
         stamp=(live.get("campaign_data_version"),live.get("mission_data_version"),
                limited.get("limited_adventure_track") if isinstance(limited,dict) else None)
         if self._catalogs is None or stamp!=self._catalog_stamp:
-            self._catalogs=(self._client.campaign_catalog(),self._client.mission_catalog());self._catalog_stamp=stamp
+            self._catalogs=(self._read("island map",self._client.campaign_catalog),self._read("stage map",self._client.mission_catalog));self._catalog_stamp=stamp
         scan=scan_adventure_islands(live,*self._catalogs,target=self.completion_target)
         self._emit("adventure_scan",scan=scan)
         return scan
@@ -187,7 +211,7 @@ class AdventureRunner:
             if decision is None:raise ATApiError("No legal Adventure play was available; the pending fight was preserved.")
             self._emit("move",battle=battle_no,move=move,action=decision.action,card_uid=decision.card_uid,card_uid2=decision.card_uid2,reason=decision.reason)
             self._pending["phase"]="move_pending";self._save_pending()
-            response=self._client.play_battlefield_card(battle_id=bid,host_id=host,card_uid=decision.card_uid,card_uid2=decision.card_uid2)
+            response=self._send_once("card play",lambda:self._client.play_battlefield_card(battle_id=bid,host_id=host,card_uid=decision.card_uid,card_uid2=decision.card_uid2))
             if api_rejected(response):raise ATApiError("AT rejected an Adventure move; it was not retried.")
             nxt=response.get("battle_data") if isinstance(response,dict) else None
             if isinstance(nxt,dict) and str(nxt.get("battle_id",bid))!=str(bid):
@@ -215,7 +239,7 @@ class AdventureRunner:
         n=0;spent=0;losses=0;farm_announced=False
         self._emit("status",text="Completing Adventure islands")
         while not self._stop.is_set() and (self.battle_limit==0 or n<self.battle_limit):
-            live=self._client.init()
+            live=self._read("account refresh",self._client.init)
             if self._stop.is_set():break
             scan=self._scan(live)
             if self._stop.is_set():break
@@ -251,7 +275,7 @@ class AdventureRunner:
                            "phase":"start_pending","cost":cost,"farming":farming,"server_time":live["time"]}
             self._save_pending()
             if self._stop.is_set():self._journal.save(None);break
-            response=self._client.call("startMission",{"mission_id":str(target["mission"]),"auto_battle":"0"})
+            response=self._send_once("battle start",lambda:self._client.call("startMission",{"mission_id":str(target["mission"]),"auto_battle":"0"}))
             marker=response.get("result") if isinstance(response,dict) else None
             accepted=(marker is True or type(marker) is int and marker==1 or isinstance(marker,str) and marker.casefold() in {"true","1"})
             state=response.get("battle_data") if isinstance(response,dict) and accepted and not api_rejected(response) else None
@@ -265,7 +289,7 @@ class AdventureRunner:
                 self._emit("adventure_paused",message="The accepted Adventure battle has no confirmed owner; the pending fight was preserved.");break
             opponent=self._client.opponent_name(state);self._emit("battle_start",number=n,opponent=opponent)
             won,moves=self._drive_completion(state,n)
-            after=mission_progress(self._client.init(),target["mission"],target["campaign_id"])
+            after=mission_progress(self._read("battle outcome refresh",self._client.init,finish_current=True),target["mission"],target["campaign_id"])
             before=target["wins"];advanced=after["wins"]>before
             if after["wins"]<before or won is False and advanced or not farming and (won is True and not advanced or won is None and not advanced):
                 self._emit("adventure_paused",message="Adventure ended without consistent fresh stage progress. The pending fight is preserved; no further energy was spent.");break
@@ -280,6 +304,6 @@ class AdventureRunner:
             if losses>=3:self._emit("adventure_paused",message="Three consecutive Adventure losses; pausing the completion route to preserve energy.");break
             if not self._stop.is_set() and (self.battle_limit==0 or n<self.battle_limit):self._stop.wait(self.battle_delay)
         if not self._stop.is_set() and (self._pending is None or self._journal.read() is None):
-            try:self._scan(self._client.init())
+            try:self._scan(self._read("account refresh",self._client.init))
             except Exception:pass
         self._emit("finished",stopped=self._stop.is_set(),completed_battles=n,energy_spent=spent)

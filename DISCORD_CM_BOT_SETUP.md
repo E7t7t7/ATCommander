@@ -1,3 +1,40 @@
+# Integrated Discord connection (Commander 1.7.29)
+
+Open **Discord & timers** in Commander. This connection runs inside the app,
+without an extra console or a separate CM-bot process.
+
+1. At https://discord.com/developers/applications create an application and Bot.
+2. Copy/reset its **bot token** and paste it into Commander’s masked Bot token
+   field. It is saved in Windows Credential Manager; never paste it in chat.
+3. In Discord enable **User Settings → Advanced → Developer Mode**. Right-click
+   your own profile and choose **Copy User ID**. Put that ID in Commander.
+4. Save connection, install Discord support if prompted, then **Connect**.
+5. **Invite bot** opens an invite for your application with bot/application-command
+   scopes. Invite it to your own server. Message Content Intent is not required.
+6. From your phone use `/commander help`. Allow DMs from the bot for completion
+   and failure alerts. Slash replies are private to the person invoking them.
+
+Only the configured user ID can control this connection or use its CM commands.
+Do not run the old standalone CM bot with the same token at the same time.
+The integrated connection preserves `/cm` and `/cmshop`, with the existing live
+shop-discovery limitations. Command registration may need Discord to refresh.
+
+Phone commands:
+
+- `/commander status` — active automation and timer state.
+- `/commander run event:Siege` or `event:Rumble` — run with saved Events settings.
+- `/commander timer event:Siege enabled:true minutes:30 day:Monday` — arm Monday checks.
+- `/commander timer event:Rumble enabled:true minutes:30 day:Every day` — recurring checks.
+- `/commander timer event:Siege enabled:false` — disarm this timer.
+- `/commander command name:play-status` — run a registered supported command;
+  named/JSON arguments use the same parser as Command Center. Purchases,
+  destructive actions, outbound-message commands and arbitrary runner commands
+  stay on the PC. Siege/Rumble combat uses the dedicated `/commander run` route.
+- `/commander stop` — request Stop all and disarm event timers.
+
+**Keep the PC awake and Commander open.** Discord does not host the game worker.
+No personal Discord login token, self-bot or Bender messaging is used.
+
 # AT Commander CM Discord Bot setup
 
 The Discord bot is optional. The **CM Reviews** tab works without Discord.
