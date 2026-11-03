@@ -1,3 +1,48 @@
+# Guild Siege sources and event defaults (1.7.30)
+
+**Discord & timers → Saved defaults** now stores separate Siege and Rumble
+loadouts: offense deck, hero/commander, defense deck, battle logic, and Siege
+island/priority/fallback choices. Save each event’s defaults. They are independent
+of manual Events selections and apply to timer and phone runs. Existing Events
+settings are imported once as starting defaults. Before combat, Commander checks
+the saved deck name/ID and verifies the selected offense deck and hero from a
+fresh account read.
+
+The two configured sources are read-only:
+
+- Attack announcements: https://discord.com/channels/520905719516626945/1254172326413471834
+- Calculon assignments: https://discord.com/channels/520905719516626945/559035124012941312
+
+For channel reading, your bot must be a member of that server and have **View
+Channel** and **Read Message History** on both sources (including thread access
+where needed). A server administrator may need to grant this. Enable **Message
+Content Intent** in the bot’s Developer Portal, enable guild reading in Commander,
+save, and reconnect. Slash phone control alone still needs no content intent.
+This uses your bot account, not your personal Discord login or Bender Bot.
+
+Set your assignment alias (e.g. DrMund0) if it differs from your Discord mention.
+Optionally restrict attack announcements to specific leader Discord user IDs.
+Use **Fetch / preview guild orders** to see detected priorities and your assigned
+island, with source timestamps. The example “Going Family Guy and Art” maps to
+Family Guy first, Art second. The supplied Calculon example maps DrMund0 to Food.
+Content and embed fields are supported; images/attachments are not interpreted.
+
+Defense assignments may arrive ahead of Sunday: they are read independently and
+remain eligible for up to seven days. Optional **Automatically apply my defense
+assignment during setup** checks every five minutes while idle. It sets the island
+only in the verified setup phase and confirms your membership afterward. A lost
+or unconfirmed response is journaled and never resent blindly. There is also an
+**Apply assigned defense now** button. These actions do not start battles.
+
+Attack announcements remain eligible for 72 hours and are rechecked before due
+Siege runs. Missing Sunday attack orders do not prevent early defense preparation.
+Enable **Use fresh guild attack priorities** and/or **Use my Calculon assignment**
+to bind those sources to Siege runs. Guild priorities map to the live enemy slots
+before each fight; defense maps only to friendly slots. Unknown/conflicting/stale
+orders wait for review rather than falling back to another week’s directions.
+Attacking other islands after guild priorities fall requires its own checkbox.
+Raw channel posts and other members’ assignments are not saved or sent to logs.
+
 # Integrated Discord connection (Commander 1.7.29)
 
 Open **Discord & timers** in Commander. This connection runs inside the app,

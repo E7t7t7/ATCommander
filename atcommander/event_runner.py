@@ -1,5 +1,6 @@
 from __future__ import annotations
 import threading, time
+from copy import deepcopy
 from typing import Any, Callable
 from .api import ATClient, ATApiError
 from .credentials import load_credentials
@@ -15,8 +16,8 @@ class EventBattleRunner:
                  defense_deck_id: str|None=None, island_id: str|None=None, logic: str="Item → Combo (default)",
                  offense_deck_id: str|None=None, offense_hero_id: str|None=None,
                  auto_watch_ads: bool=False, event: Callable[[dict[str,Any]],None]|None=None,
-                 siege_target_slots: list[str]|None=None, siege_fallback_any: bool=True, siege_poll_seconds: int=60,*,siege_once:bool=False):
-        self.mode=mode;self.siege_once=bool(siege_once)
+                 siege_target_slots: list[str]|None=None, siege_fallback_any: bool=True, siege_poll_seconds: int=60,*,siege_once:bool=False,defaults=None,guild_plan=None):
+        self.mode=mode;self.siege_once=bool(siege_once);self.event_defaults=deepcopy(defaults);self.guild_plan=deepcopy(guild_plan or {})
         self.move_delay=max(.05,float(move_delay)); self.battle_delay=max(.1,float(battle_delay))
         self.defense_deck_id=defense_deck_id or None; self.island_id=island_id or None
         self.offense_deck_id=offense_deck_id or None; self.offense_hero_id=offense_hero_id or None; self.auto_watch_ads=bool(auto_watch_ads)
@@ -99,12 +100,26 @@ class EventBattleRunner:
         return response,None
 
 
+    def _bind_guild_orders(self,status):
+        if not self.guild_plan:return
+        from .guild_orders import resolve_orders
+        values=resolve_orders(self.guild_plan.get('plan',{}),status,attack=self.guild_plan.get('use_attack')is True,defense=self.guild_plan.get('use_defense')is True)
+        if 'targets'in values:self.siege_target_slots=values['targets'];self.siege_fallback_any=self.guild_plan.get('fallback')is True
+        if 'island_id'in values:self.island_id=values['island_id']
+
     def _run(self):
         try:
             c=ATClient(load_credentials());self._client=c;init=c.init();key=self.mode.lower()
+            if self.event_defaults is not None:
+                from .event_defaults import validated_defaults
+                values=validated_defaults(self.event_defaults,init)
+                self.offense_deck_id=values.get('offense_deck_id')or None;self.offense_hero_id=values.get('offense_hero_id')or None
+                self.defense_deck_id=values.get('defense_deck_id')or None;self.island_id=values.get('island_id')or None
+                self.siege_target_slots=list(values.get('targets',[]));self.siege_fallback_any=values.get('fallback')is True
             if key=="siege" and self.siege_once:
                 status=c.get_guild_siege_status()
                 if not isinstance(status,dict) or status.get("result") is False:raise ATApiError("Scheduled Siege status is unavailable; no attack was started.")
+                self._bind_guild_orders(status)
                 phase,enemy=self._siege_status_rows(status)
                 if phase.get("result") is False:raise ATApiError("Scheduled Siege status was rejected; no attack was started.")
                 try:ready=int(phase.get("phase",-1))==2 and int(phase.get("num_attacks",0))>0 and self._choose_siege_target(enemy)is not None
@@ -115,6 +130,9 @@ class EventBattleRunner:
             ad_preflight(c,init,lambda m:self._emit("log",message=m),auto_watch=self.auto_watch_ads)
             if self.offense_deck_id or self.offense_hero_id:
                 c.apply_selection(deck_id=self.offense_deck_id, hero_id=self.offense_hero_id)
+                if self.event_defaults is not None:
+                    from .event_defaults import verify_loadout
+                    verify_loadout(values,c.init())
                 self._emit("log",message=f"{self.mode} offense deck/hero applied before battle run.")
             if key=="siege":
                 if self.defense_deck_id:
@@ -136,6 +154,7 @@ class EventBattleRunner:
                         msg="Siege status refresh was rejected or unavailable; waiting for a fresh status before considering an attack."
                         if msg!=last_wait:self._emit("log",message=msg);last_wait=msg
                         self._stop.wait(self.siege_poll_seconds);continue
+                    self._bind_guild_orders(status)
                     st, enemy=self._siege_status_rows(status)
                     if st.get("result") is False:
                         if self.siege_once:raise ATApiError("Scheduled Siege status was rejected; timer paused without an attack.")

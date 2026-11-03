@@ -45,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.29"
+VERSION="1.7.30"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -868,11 +868,13 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
             apply(self.deck_rows,(("deck_combo","deck_var"),("rumble_deck_combo","rumble_deck"),
                 ("siege_deck_combo","siege_deck"),("rumble_offense_deck_combo","rumble_offense_deck"),
                 ("siege_offense_deck_combo","siege_offense_deck"),("challenge_offense_deck_combo","challenge_offense_deck"),("builder_slot_combo","builder_slot")))
+        if hasattr(self,"default_vars"):self._defaults_refresh()
         if heroes is not None:
             self.hero_rows=list(heroes)
             apply(self.hero_rows,(("hero_combo","hero_var"),("rumble_offense_hero_combo","rumble_offense_hero"),
                 ("siege_offense_hero_combo","siege_offense_hero"),("challenge_offense_hero_combo","challenge_offense_hero")))
             apply(self.hero_rows,(("swole_target_combo","swole_target"),),"Select hero…")
+            if hasattr(self,"default_vars"):self._defaults_refresh()
 
     def _selected_id(self,label,rows):
         if not label or label.startswith("Current / unchanged") or label.startswith("Select hero"):return None
@@ -1001,9 +1003,11 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         if getattr(self,"discord_connection",None):self.discord_connection.close()
         self.root.title(f"AT Commander {VERSION} — stopping active work…")
         def settle():
+            guild_thread=getattr(self,"guild_defense_thread",None)
             reward_thread=getattr(self,"reward_thread",None)
             research_thread=getattr(self,"research_thread",None)
             busy=getattr(self,"research_busy",False) or getattr(self,"command_busy",False)
+            busy=busy or guild_thread is not None and guild_thread.is_alive()
             busy=busy or reward_thread is not None and reward_thread.is_alive()
             busy=busy or research_thread is not None and research_thread.is_alive()
             browser_thread=getattr(self,"game_panel_thread",None)
@@ -1034,7 +1038,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
                 self._game_panel_closed=True;configure(None);self.root.destroy()
         settle()
 
-    def start_event(self,mode,*,scheduled=False):
+    def start_event(self,mode,*,scheduled=False,defaults=None,guild_plan=None):
         if self._command_blocks_runner():return
         if self.event_runner and getattr(self.event_runner,"running",False):messagebox.showinfo("AT Commander","An event automation is already running. Stop it first.");return
         p=load_profiles(); key=mode.lower()
@@ -1048,9 +1052,13 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
             fallback=bool(self.siege_fallback_any.get())
             try:poll=max(10,int(self.siege_poll.get() or 60))
             except Exception:poll=60
-            if not targets and not fallback:
+            if not targets and not fallback and defaults is None:
                 messagebox.showinfo("Siege","Choose at least one attack target or enable the any-living-island fallback.");return
-        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll,siege_once=scheduled);self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
+        if defaults is not None:
+            did=defaults.get('defense_deck_id')or None;island=defaults.get('island_id')or None
+            odid=defaults.get('offense_deck_id')or None;ohid=defaults.get('offense_hero_id')or None
+            logic=defaults.get('logic')or logic;targets=list(defaults.get('targets',[]));fallback=defaults.get('fallback')is True
+        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll,siege_once=scheduled,defaults=defaults,guild_plan=guild_plan);self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
         return True
 
     def _selected_challenge_row(self):
@@ -2199,6 +2207,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         elif k=="metadata":
             self._apply_account_selectors(e.get("decks") or [],e.get("heroes") or [])
             self.siege_island_rows=e.get("islands") or [];self.siege_target_rows=e.get("siege_targets") or [];self.progress_rows=e.get("progress") or [];self.hero_medal_rows=e.get("medals") or [];self.current_snapshot=e.get("snapshot") or {}
+            if hasattr(self,"default_vars"):self._defaults_refresh()
             islands=["Current / unchanged"]+[f"{r.get('name')} — {r.get('hp')}/{r.get('max_hp')} HP  [ID {r.get('id')}]" if r.get('max_hp') is not None else f"{r.get('name')}  [ID {r.get('id')}]" for r in self.siege_island_rows if str(r.get("resolved","1"))=="1"]
             if len(islands)==1:islands += ["Island 1","Island 2","Island 3","Island 4","Island 5"]
             self.siege_island_combo["values"]=islands

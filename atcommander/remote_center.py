@@ -10,6 +10,8 @@ import time
 import tkinter as tk
 from tkinter import ttk,messagebox
 import webbrowser
+from .siege_orders_ui import SiegeOrdersMixin
+from copy import deepcopy
 from .remote_control import EventTimers,RemoteInbox,MODES,DAYS,remote_command
 from .remote_discord import DiscordConnection
 from .command_center import CommandCenterMixin
@@ -17,7 +19,7 @@ from .protocol_config import load_profiles
 from .cm_discord_bot import TOKEN_SERVICE,TOKEN_USER
 from .log_view import logbox,split_controls_log
 
-class RemoteCenterMixin:
+class RemoteCenterMixin(SiegeOrdersMixin):
     def _build_remote_center(self):
         self.discord_connection=None;self.remote_job=None;self.event_timers=EventTimers(self.command_schema.store)
         config=self.command_schema.store.read().get('discord_remote',{})
@@ -28,7 +30,7 @@ class RemoteCenterMixin:
         self.remote_panes,controls,activity=split_controls_log(self.remote_tab,controls_height=510)
         head=ttk.Frame(controls,padding=12);head.pack(fill='x')
         ttk.Label(head,text='Your phone, connected to Commander',style='Big.TLabel').pack(anchor='w')
-        ttk.Label(head,text='Leave this PC awake and Commander open. Timers use your saved Events decks, heroes and Siege targets. Only your Discord user ID can control it.',wraplength=1060).pack(anchor='w',pady=(4,10))
+        ttk.Label(head,text='Leave this PC awake and Commander open. Timers use the independent event defaults below. Only your Discord user ID can control it.',wraplength=1060).pack(anchor='w',pady=(4,10))
         form=ttk.LabelFrame(head,text='Discord connection',padding=10);form.pack(fill='x')
         for row,(text,variable,secret)in enumerate([('Your Discord user ID',self.discord_owner,False),('Bot token (saved securely)',self.discord_token,True)]):
             ttk.Label(form,text=text).grid(row=row,column=0,sticky='w',pady=3)
@@ -57,6 +59,7 @@ class RemoteCenterMixin:
         timers.columnconfigure(3,weight=1)
         ttk.Label(head,text='Siege defaults to Mondays. Choose any weekday or Every day. Blank time starts checking on the next allowed day; HH:MM uses PC local time. Busy checks wait; errors pause the timer.',wraplength=1080).pack(anchor='w',pady=8)
         ttk.Label(head,text='Phone: /commander status · /commander run · /commander timer · /commander command · /commander stop',wraplength=1080).pack(anchor='w')
+        self._build_event_defaults(head)
         self.remote_log=logbox(activity,height=7,pady=(0,6))
         self._timers_render()
         if self.discord_autoconnect.get():self.root.after(2000,self._remote_connect)
@@ -82,7 +85,7 @@ class RemoteCenterMixin:
         if importlib.util.find_spec('discord')is None:
             self.discord_state.set('Install Discord support first.');return
         if not self._remote_save():return
-        inbox=RemoteInbox(self.discord_owner.get().strip());self.discord_connection=DiscordConnection(inbox,self.events.put)
+        inbox=RemoteInbox(self.discord_owner.get().strip());self.discord_connection=DiscordConnection(inbox,self.events.put,orders_config=self.guild_config)
         self.discord_connection.start();self.discord_state.set('Connecting…')
     def _remote_disconnect(self):
         if self.discord_connection:self.discord_connection.close()
@@ -110,6 +113,7 @@ class RemoteCenterMixin:
                 clock=datetime.strptime(first.get().strip(),'%H:%M');current=datetime.now();initial=current.replace(hour=clock.hour,minute=clock.minute,second=0,microsecond=0)
                 if initial<=current:initial+=timedelta(days=1)
                 initial=initial.timestamp()
+            self.guild_suspended=False
             self.event_timers.arm(mode,int(minutes.get()),now,initial,weekday=DAYS.index(day.get())-1 if day.get()!=DAYS[0]else None);self._timers_render()
         except ValueError as error:messagebox.showinfo('Event timer',str(error))
     def _timer_disarm(self,mode):self.event_timers.disarm(mode);self._timers_render()
@@ -130,11 +134,14 @@ class RemoteCenterMixin:
         if CommandCenterMixin._browser_action_busy(self):raise ValueError('Commander is busy. No event run was started.')
         if not getattr(self,'deck_rows',None):raise ValueError('Wait for Refresh account to load your saved deck selections first.')
         if mode=='Rumble'and not load_profiles().get('rumble'):raise ValueError('Set up the Rumble battle profile in Commander first.')
-        if mode=='Siege'and not self.siege_fallback_any.get()and not any(self._selected_siege_target_id(v.get())for v in (self.siege_target_a,self.siege_target_b,self.siege_target_c)):raise ValueError('Set Siege attack targets or enable fallback in Events first.')
+        defaults=deepcopy(self.event_defaults[mode])
+        if mode=='Siege'and not self._orders_ready():raise ValueError('Fresh guild orders are not ready. Review the guild preview first.')
+        if mode=='Siege'and not defaults.get('targets')and not defaults.get('fallback')and not self.guild_config.get('use_attack'):raise ValueError('Set Siege defaults or enable fresh guild attack priorities first.')
+        guild_plan={'plan':deepcopy(self.guild_plan),'use_attack':self.guild_config.get('use_attack')is True,'use_defense':self.guild_config.get('use_defense')is True,'fallback':self.guild_config.get('fallback')is True}if mode=='Siege'else None
         for variable in (self.delay_var,self.battle_delay_var):float(variable.get())
-        accepted=self.start_event(mode,scheduled=True)
+        accepted=self.start_event(mode,scheduled=True,defaults=defaults,guild_plan=guild_plan)
         if accepted is not True:raise ValueError('The event run did not start. Review Events on your PC.')
-        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0};return mode+' started using your saved Events settings.'
+        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0};return mode+' started using your saved timer/phone defaults.'
     def _remote_dispatch(self,request):
         if request.action=='help':return '/commander status\n/commander run event:Siege or Rumble\n/commander timer event:Siege enabled:true minutes:30\n/commander command name:play-status\n/commander stop\nRuns use saved PC settings; stop also disarms timers. Purchases and destructive commands require the PC.'
         if request.action=='status':return self._remote_status()
@@ -143,6 +150,7 @@ class RemoteCenterMixin:
             if request.target not in MODES:raise ValueError('Choose Siege or Rumble.')
             if request.arguments=='off':self._timer_disarm(request.target);return request.target+' timer disarmed.'
             options=json.loads(request.arguments)if request.arguments.startswith('{')else {'minutes':int(request.arguments)}
+            self.guild_suspended=False
             self.event_timers.arm(request.target,options['minutes'],time.time(),weekday=options.get('weekday','saved'));self._timers_render()
             return request.target+' timer armed. Next check: '+datetime.fromtimestamp(self.event_timers.rows[request.target]['due']).strftime('%a %H:%M')
         if request.action=='run':return self._remote_begin_event(request.target)
@@ -164,11 +172,14 @@ class RemoteCenterMixin:
                 except (ValueError,TypeError):answer='Request could not run. Check its settings, permissions and whether Commander is busy.'
                 except Exception:answer='Commander could not accept this request. Review its PC activity log before trying again.'
                 request.result.set_result(answer)
+        if hasattr(self,'guild_config'):self._guild_tick()
         if CommandCenterMixin._browser_action_busy(self):return
         if not getattr(self,'deck_rows',None):return
         due=self.event_timers.due(time.time())
         if not due:return
-        mode=due[0];self.event_timers.claim(mode,time.time())
+        mode=next((m for m in due if m!='Siege'or self._orders_ready()),None)
+        if mode is None:return
+        self.event_timers.claim(mode,time.time())
         try:self._remote_begin_event(mode,scheduled=True)
         except Exception:
             self.event_timers.finish(mode,failed=True);self._remote_notify(mode+' timer paused: settings or event startup need review in Commander.')
@@ -177,6 +188,7 @@ class RemoteCenterMixin:
         self._append(self.remote_log,text)
         if self.discord_connection:self.discord_connection.notify(text)
     def _remote_observe(self,event):
+        if hasattr(self,"guild_config")and self._orders_event(event):return True
         kind=event.get('kind');job=self.remote_job
         if job and event.get('mode')==job['mode']:
             if kind=='battle_end':job['battles']+=1
@@ -194,7 +206,9 @@ class RemoteCenterMixin:
             self.discord_installing=False;self.discord_install.configure(state='normal');self.discord_state.set('Discord support installed. You can Connect.'if event['ok']else'Installation failed. Check the PC connection and try again.');return True
         return False
     def _remote_stop_timers(self):
+        if hasattr(self,'guild_defense_stop'):self.guild_defense_stop.set()
         if getattr(self,'_closing',False):return
+        if hasattr(self,'guild_defense_stop'):self.guild_defense_stop.set();self.guild_suspended=True
         if hasattr(self,'event_timers'):
             for mode in MODES:self.event_timers.disarm(mode)
             self._timers_render()

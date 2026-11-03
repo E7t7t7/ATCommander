@@ -4,8 +4,8 @@ import json
 import threading
 
 class DiscordConnection:
-    def __init__(self,inbox,emit):
-        self.inbox=inbox;self.emit=emit;self.loop=None;self.client=None;self.thread=None;self._stop=threading.Event();self.ready=False
+    def __init__(self,inbox,emit,orders_config=None):
+        self.orders_config=dict(orders_config or {});self.inbox=inbox;self.emit=emit;self.loop=None;self.client=None;self.thread=None;self._stop=threading.Event();self.ready=False
     def start(self):
         self.thread=threading.Thread(target=self._work,daemon=True,name='Commander Discord');self.thread.start()
     def _work(self):
@@ -20,7 +20,8 @@ class DiscordConnection:
         token=_load_token(False)
         if not token:
             self.emit({'kind':'discord_status','text':'Save a bot token first.'});return
-        self.loop=asyncio.get_running_loop();client=discord.Client(intents=discord.Intents.default(),allowed_mentions=discord.AllowedMentions.none());self.client=client
+        self.loop=asyncio.get_running_loop();intents=discord.Intents.default();intents.message_content=self.orders_config.get('enabled')is True
+        client=discord.Client(intents=intents,allowed_mentions=discord.AllowedMentions.none());self.client=client
         tree=app_commands.CommandTree(client);group=app_commands.Group(name='commander',description='Control your AT Commander PC')
         async def request(interaction,action,target='',arguments=''):
             try:future=self.inbox.submit(interaction.user.id,interaction.id,action,target,arguments)
@@ -83,6 +84,31 @@ class DiscordConnection:
         try:
             if not self._stop.is_set():await client.start(token)
         finally:watcher.cancel();await client.close()
+    def fetch_orders(self):
+        if not self.ready or self.loop is None or not self.orders_config.get('enabled'):raise ValueError('Enable guild reading and reconnect Discord first.')
+        async def read():
+            from datetime import datetime,timezone,timedelta
+            from .guild_orders import GUILD_ID,ATTACK_CHANNEL,DEFENSE_CHANNEL,MAX_AGE,DEFENSE_MAX_AGE
+            result={}
+            for label,cid in (('attack',ATTACK_CHANNEL),('defense',DEFENSE_CHANNEL)):
+                records=[]
+                try:
+                    channel=self.client.get_channel(cid)or await self.client.fetch_channel(cid)
+                    if getattr(getattr(channel,'guild',None),'id',None)!=GUILD_ID:raise ValueError('Unexpected guild channel.')
+                    async for message in channel.history(limit=100,after=datetime.now(timezone.utc)-timedelta(seconds=MAX_AGE if label=='attack'else DEFENSE_MAX_AGE)):
+                        parts=[message.content or '']
+                        for embed in message.embeds:
+                            parts.extend([embed.title or '',embed.description or ''])
+                            for field in embed.fields:parts.extend([field.name+(': 'if not field.name.rstrip().endswith(':')else ''),field.value])
+                        text='\n'.join(parts)
+                        if len(text)>24000:continue
+                        records.append({'text':text,'at':message.created_at.timestamp(),'author_id':str(message.author.id),
+                            'author_name':message.author.name,'bot':message.author.bot,'url':message.jump_url})
+                except Exception:result[label+'_error']=True
+                result[label]=records
+            return result
+        return asyncio.run_coroutine_threadsafe(read(),self.loop)
+
     def close(self):
         self._stop.set();self.inbox.close();self.ready=False
     def notify(self,text):
