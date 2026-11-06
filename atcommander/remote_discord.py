@@ -142,6 +142,7 @@ class DiscordConnection:
         async def send():
             try:
                 user=self.client.get_user(self.inbox.owner_id)or await self.client.fetch_user(self.inbox.owner_id)
-                await user.send(str(text)[:1800])
+                from .event_results import notification_chunks
+                for chunk in notification_chunks(text):await user.send(chunk)
             except Exception:self.emit({'kind':'discord_notice_failed'})
         asyncio.run_coroutine_threadsafe(send(),self.loop)

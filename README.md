@@ -1,4 +1,4 @@
-Current release: **1.7.31**. See [bot DMs, pasted Siege orders and ad-independent event runs](README_1.7.31_CHANGES.md).
+Current release: **1.7.32**. See [Discord battle result summaries](README_1.7.32_CHANGES.md).
 
 # AT Commander 1.7.27
 

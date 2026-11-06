@@ -12,6 +12,7 @@ from tkinter import ttk,messagebox
 import webbrowser
 from .siege_orders_ui import SiegeOrdersMixin
 from copy import deepcopy
+from .event_results import event_results
 from .remote_control import EventTimers,RemoteInbox,MODES,DAYS,remote_command
 from .remote_discord import DiscordConnection
 from .command_center import CommandCenterMixin
@@ -145,7 +146,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         for variable in (self.delay_var,self.battle_delay_var):float(variable.get())
         accepted=self.start_event(mode,scheduled=True,defaults=defaults,guild_plan=guild_plan)
         if accepted is not True:raise ValueError('The event run did not start. Review Events on your PC.')
-        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0};return mode+' started using your saved timer/phone defaults.'
+        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0,'results':[]};return mode+' started using your saved timer/phone defaults.'
     def _remote_dispatch(self,request):
         if request.action=='help':return 'DM commands: status · siege · rumble · stop · timer siege Monday 30 · timer rumble daily 30 · command play-status · cm Wingnut Amy. Paste the full Sunday attack post or Calculon roster directly into this DM.\n\n/commander status\n/commander run event:Siege or Rumble\n/commander timer event:Siege enabled:true minutes:30\n/commander command name:play-status\n/commander stop\nRuns use saved PC settings; stop also disarms timers. Purchases and destructive commands require the PC.'
         if request.action=='orders':return self._orders_from_owner(request.target,request.arguments)
@@ -196,10 +197,13 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         if hasattr(self,"guild_config")and self._orders_event(event):return True
         kind=event.get('kind');job=self.remote_job
         if job and event.get('mode')==job['mode']:
-            if kind=='battle_end':job['battles']+=1
+            if kind=='battle_start':job['current_opponent']=event.get('opponent')or'Unknown opponent'
+            if kind=='battle_end':
+                job['battles']+=1;job.setdefault('results',[]).append({'opponent':event.get('opponent')or job.get('current_opponent')or'Unknown opponent','won':event.get('won')});job.pop('current_opponent',None)
             if kind in {'finished','fatal'}:
                 if job['scheduled']:self.event_timers.finish(job['mode'],failed=kind=='fatal');self._timers_render()
-                if kind=='fatal'or job['battles']:self._remote_notify(job['mode']+(' paused after an error; check Events before restarting.'if kind=='fatal'else f" completed: {job['battles']} battle(s)."))
+                if job.get('current_opponent'):job.setdefault('results',[]).append({'opponent':job['current_opponent'],'won':None})
+                if kind=='fatal'or job['battles']or job.get('results'):self._remote_notify(event_results(job['mode'],job.get('results',[]),failed=kind=='fatal',stopped=event.get('stopped')is True))
                 self.remote_job=None
         if kind=='command_result'and getattr(self,'remote_command_name',None):
             self._remote_notify(self.remote_command_name+(' completed. Results are in Commander.'if event.get('ok')else' stopped with an error; check Commander before retrying.'));self.remote_command_name=None
