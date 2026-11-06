@@ -1,4 +1,4 @@
-Current release: **1.7.30**. See [independent event defaults and guild Siege orders](README_1.7.30_CHANGES.md).
+Current release: **1.7.31**. See [bot DMs, pasted Siege orders and ad-independent event runs](README_1.7.31_CHANGES.md).
 
 # AT Commander 1.7.27
 

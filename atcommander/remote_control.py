@@ -31,8 +31,8 @@ class RemoteInbox:
         self.owner_id=int(owner_id);self.queue=queue.Queue(maxsize=16);self._seen=set();self._lock=threading.Lock();self.closed=False
     def submit(self,user_id,request_id,action,target='',arguments=''):
         if type(user_id)is not int or user_id!=self.owner_id:raise PermissionError('This Commander connection belongs to another Discord account.')
-        if action not in {'status','run','command','stop','timer','help'}:raise ValueError('Unknown Commander action.')
-        if not all(isinstance(s,str)and len(s)<=1800 for s in (target,arguments)):raise ValueError('The command is too long.')
+        if action not in {'status','run','command','stop','timer','help','orders'}:raise ValueError('Unknown Commander action.')
+        if not all(isinstance(s,str)and len(s)<=(12000 if action=='orders'else 1800) for s in (target,arguments)):raise ValueError('The command is too long.')
         with self._lock:
             if self.closed:raise ValueError('Commander is disconnecting.')
             if request_id in self._seen:raise ValueError('This request was already received; it was not repeated.')

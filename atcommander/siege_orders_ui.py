@@ -2,6 +2,7 @@
 import time
 from datetime import datetime
 import threading
+from copy import deepcopy
 from .api import ATClient
 from .credentials import load_credentials
 from .command_center import CommandCenterMixin
@@ -11,7 +12,7 @@ from tkinter import ttk,messagebox
 import webbrowser
 from .event_defaults import initial_defaults
 from .deck_selection import label_parts,resolve_deck
-from .guild_orders import GUILD_ID,ATTACK_CHANNEL,DEFENSE_CHANNEL,parse_orders
+from .guild_orders import GUILD_ID,ATTACK_CHANNEL,DEFENSE_CHANNEL,parse_orders,attack_order,defense_order,MAX_AGE,DEFENSE_MAX_AGE
 
 class SiegeOrdersMixin:
     def _build_event_defaults(self,parent):
@@ -48,12 +49,15 @@ class SiegeOrdersMixin:
         config=saved.get('guild_sources',{});config=config if isinstance(config,dict)else{}
         self.guild_defense_thread=None;self.guild_defense_stop=threading.Event();self.guild_next_defense=0
         self.guild_config=dict(config);self.guild_plan={};self.guild_fetching=False;self.guild_retry_at=0;self.guild_next_read=time.time()+5
+        self.guild_dm_only=tk.BooleanVar(value=config.get('source_mode')=='dm')
+        if self.guild_dm_only.get():self.guild_plan=deepcopy(saved.get('guild_owner_orders')or{})
         self.guild_enabled=tk.BooleanVar(value=config.get('enabled')is True);self.guild_attack=tk.BooleanVar(value=config.get('use_attack')is True)
         self.guild_auto_defense=tk.BooleanVar(value=config.get('auto_defense')is True)
         self.guild_defense=tk.BooleanVar(value=config.get('use_defense')is True);self.guild_fallback=tk.BooleanVar(value=config.get('fallback')is True)
         self.guild_alias=tk.StringVar(value=str(config.get('alias','')));self.guild_leaders=tk.StringVar(value=str(config.get('leaders','')))
         self.guild_preview=tk.StringVar(value='No guild orders fetched yet. No channel messages are read until guild reading is enabled.')
         guild=ttk.LabelFrame(parent,text='Guild Siege orders',padding=10);guild.pack(fill='x',pady=8)
+        ttk.Checkbutton(guild,text='Use orders pasted into my bot DM (the bot does not need to join the guild server)',variable=self.guild_dm_only).pack(anchor='w')
         ttk.Checkbutton(guild,text='Read the two configured guild channels (requires bot access + Message Content Intent)',variable=self.guild_enabled).pack(anchor='w')
         for text,cid in [('Attack announcements',ATTACK_CHANNEL),('Calculon defense assignments',DEFENSE_CHANNEL)]:
             ttk.Button(guild,text=text+' ↗',command=lambda c=cid:webbrowser.open(f'https://discord.com/channels/{GUILD_ID}/{c}')).pack(anchor='w',pady=2)
@@ -108,14 +112,16 @@ class SiegeOrdersMixin:
     def _orders_save(self):
         leaders=[x.strip()for x in self.guild_leaders.get().split(',')if x.strip()]
         if any(not x.isdigit()for x in leaders):self.guild_preview.set('Leader IDs must be numeric Discord IDs.');return False
-        enabled=self.guild_enabled.get()or self.guild_attack.get()or self.guild_defense.get()or self.guild_auto_defense.get();self.guild_enabled.set(enabled)
+        enabled=(self.guild_enabled.get()or self.guild_attack.get()or self.guild_defense.get()or self.guild_auto_defense.get())and not self.guild_dm_only.get();self.guild_enabled.set(enabled)
         previous=self.guild_config.get('enabled')is True
-        self.guild_config={'enabled':enabled,'use_attack':self.guild_attack.get(),'use_defense':self.guild_defense.get(),'auto_defense':self.guild_auto_defense.get(),'fallback':self.guild_fallback.get(),'alias':self.guild_alias.get().strip(),'leaders':','.join(leaders)}
-        self.command_schema.store.update('guild_sources',self.guild_config);self.guild_retry_at=0;self.guild_next_read=0;self.guild_plan={};self.guild_suspended=False
-        if previous!=enabled and self.discord_connection:self.discord_connection.close();self.guild_preview.set('Saved. Reconnect Discord with Message Content Intent enabled for guild reading.')
-        else:self.guild_preview.set('Saved. Fetch orders to preview current priorities and your assignment.')
+        self.guild_config={'source_mode':'dm'if self.guild_dm_only.get()else'channels','enabled':enabled,'use_attack':self.guild_attack.get(),'use_defense':self.guild_defense.get(),'auto_defense':self.guild_auto_defense.get(),'fallback':self.guild_fallback.get(),'alias':self.guild_alias.get().strip(),'leaders':','.join(leaders)}
+        self.command_schema.store.update('guild_sources',self.guild_config);self.guild_retry_at=0;self.guild_next_read=0;self.guild_plan=deepcopy(self.command_schema.store.read().get('guild_owner_orders')or{})if self.guild_dm_only.get()else{};self.guild_suspended=False
+        if previous!=enabled and self.discord_connection:
+            self.discord_connection.close();self.guild_preview.set('Saved. Reconnect Discord with Message Content Intent for guild reading.'if enabled else'Saved DM-only mode. Reconnect Discord, then paste the posts into your bot DM.')
+        else:self.guild_preview.set('Saved. Paste the posts into your bot DM.'if self.guild_dm_only.get()else'Saved. Fetch orders to preview current priorities and your assignment.')
         return True
     def _orders_fetch(self):
+        if self.guild_config.get('source_mode')=='dm':self.guild_preview.set('Paste the Sunday attack post and Calculon assignment directly into your bot DM. Channel links are not needed.');return
         if self.guild_fetching:return
         try:
             if not self.discord_connection:raise ValueError()
@@ -132,6 +138,7 @@ class SiegeOrdersMixin:
             self.guild_preview.set(event['message']);self._append(self.remote_log,event['message']);return True
         if event.get('kind')!='guild_orders':return False
         self.guild_fetching=False;self.guild_next_read=time.time()+300
+        if self.guild_config.get('source_mode')=='dm':return True
         if event.get('error'):
             self.guild_plan={};self.guild_retry_at=time.time()+300;self.guild_preview.set('Could not read guild channels. Check View Channel, Read Message History and Message Content Intent.');return True
         config=self.guild_config;answer=event['answer']
@@ -144,6 +151,12 @@ class SiegeOrdersMixin:
         self.guild_preview.set('Attack ['+stamp(attack)+']: '+(' → '.join(attack.get('targets',[]))or attack.get('error','Unavailable'))+'\nDefense ['+stamp(defense)+']: '+str(defense.get('island')or defense.get('error','Unavailable')))
         return True
     def _orders_ready(self):
+        if self.guild_config.get('source_mode')=='dm':
+            for kind,flag,age in (('attack','use_attack',MAX_AGE),('defense','use_defense',DEFENSE_MAX_AGE)):
+                source=self.guild_plan.get(kind,{})
+                if self.guild_config.get(flag)and (source.get('error')or not source.get('at')or not 0<=time.time()-source['at']<=age):
+                    self.guild_preview.set('Waiting for a current '+kind+' post pasted into your bot DM.');return False
+            return True
         if not(self.guild_config.get('use_attack')or self.guild_config.get('use_defense')):return True
         if not self.guild_plan or time.time()-self.guild_plan.get('fetched_at',0)>600:
             if time.time()>=self.guild_retry_at:self._orders_fetch()
@@ -172,3 +185,27 @@ class SiegeOrdersMixin:
         if getattr(self,'_closing',False)or getattr(self,'guild_suspended',False):return
         if self.guild_config.get('enabled')and time.time()>=max(self.guild_retry_at,self.guild_next_read):self._orders_fetch()
         if self.guild_config.get('auto_defense')and time.time()>=self.guild_next_defense:self._guild_apply_defense()
+
+    def _orders_from_owner(self,kind,text):
+        if kind not in {'attack','defense'}:raise ValueError('Choose attack or defense orders.')
+        alias=self.guild_alias.get().strip()or(getattr(self,'current_snapshot',{}).get('user_data')or{}).get('name','')
+        source={'at':time.time(),'source':'owner_dm','url':''}
+        if kind=='attack':source['targets']=attack_order(text)
+        else:source['island']=defense_order(text,self.discord_owner.get(),[alias])
+        saved=deepcopy(self.command_schema.store.read().get('guild_owner_orders')or{})
+        saved.setdefault('attack',{'error':'Paste your current attack announcement into the bot DM.'})
+        saved.setdefault('defense',{'error':'Paste your Calculon assignment into the bot DM.'})
+        saved[kind]=source;saved['fetched_at']=time.time()
+        self.command_schema.store.update('guild_owner_orders',saved)
+        self.guild_plan=saved;self.guild_dm_only.set(True);self.guild_enabled.set(False)
+        self.guild_attack.set(True)
+        if kind=='defense':self.guild_defense.set(True)
+        self.guild_config.update(source_mode='dm',enabled=False,use_attack=self.guild_attack.get(),use_defense=self.guild_defense.get(),alias=alias)
+        self.command_schema.store.update('guild_sources',self.guild_config)
+        if self.discord_connection:self.discord_connection.orders_config['enabled']=False
+        self.guild_suspended=False
+        attack=self.guild_plan['attack'];defense=self.guild_plan['defense']
+        summary='Attack from your DM: '+(' → '.join(attack.get('targets',[]))or'waiting for post')+'\nDefense from your DM: '+str(defense.get('island')or'waiting for post')
+        self.guild_preview.set(summary)
+        self._append(self.remote_log,'Owner supplied '+kind+' orders: '+(' → '.join(source['targets'])if kind=='attack'else source['island']))
+        return summary+'\nSaved for the Siege automation. Your existing timer must be armed to start fights.'

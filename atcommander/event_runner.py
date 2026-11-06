@@ -127,7 +127,8 @@ class EventBattleRunner:
                 if not ready:
                     self._emit("log",message="Siege has no available attack phase/attacks/target. Waiting for the next timer check.")
                     self._emit("finished",stopped=False,lifetime=self.lifetime.to_dict());return
-            ad_preflight(c,init,lambda m:self._emit("log",message=m),auto_watch=self.auto_watch_ads)
+            if key in {"siege","rumble"}:self._emit("log",message=self.mode+" automation does not require ad watching; continuing with the current boost state.")
+            else:ad_preflight(c,init,lambda m:self._emit("log",message=m),auto_watch=self.auto_watch_ads)
             if self.offense_deck_id or self.offense_hero_id:
                 c.apply_selection(deck_id=self.offense_deck_id, hero_id=self.offense_hero_id)
                 if self.event_defaults is not None:

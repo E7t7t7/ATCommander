@@ -1,3 +1,42 @@
+# Bot DMs and orders without guild access (1.7.31)
+
+Your own bot has a Discord profile and DM conversation. It does not inherit the
+servers/channels your personal account can read. A channel URL does not grant a
+bot access. If your guild cannot invite the bot, use the owner-DM route below.
+
+1. Connect your bot in Commander. Invite it to a private server you control if
+   needed, open its profile, and choose **Message** (or use **Open bot DM**).
+2. Under Guild Siege orders, select **Use orders pasted into my bot DM** and
+   Save guild sources. If switching from channel reading, reconnect. This mode
+   does not request Message Content Intent and does not read guild channels.
+3. Paste the entire Calculon roster into the bot DM as soon as you receive it.
+   It matches your configured alias (e.g. DrMund0) or your actual Discord mention.
+4. On Sunday paste the entire attack announcement into the same DM. The example
+   “Going Family Guy and Art” becomes Family Guy first, then Art.
+5. Save your Siege loadout/defaults and arm its Monday timer. Enable automatic
+   defense setup if you want the assigned defense island applied during setup.
+
+Plain-text DM commands, with optional `!` prefix:
+
+- `help`, `status`, `siege`, `rumble`, `stop`
+- `timer siege Monday 30`, `timer rumble daily 30`, `timer siege off`
+- `command play-status` (same supported registry commands and PC-only restrictions)
+- `cm Wingnut Amy`, `cmshop`
+- `attack <pasted post>` or `defense <pasted roster>` if automatic recognition
+  needs an explicit label. Paste text; forwarded snapshots/images are not parsed.
+
+Only the configured owner can issue DM commands. Server chat cannot start phone
+jobs. Orders are stored as parsed island names with an owner-supplied label and
+receipt timestamp; raw posts/other members’ roster entries are discarded. The
+owner is responsible for copying current posts: receipt time does not establish
+the original post date or author. Attack orders expire after 72 hours; defense
+assignments after seven days. Ambiguous imports do not replace valid orders.
+Pasting orders does not arm a disarmed timer or start fights immediately.
+
+Rumble automation’s deck remains configurable separately at **Discord & timers →
+Saved defaults → Rumble**. Save its offense deck/hero and other settings there.
+Siege and Rumble do not require or attempt ad watching before their event runs.
+
 # Guild Siege sources and event defaults (1.7.30)
 
 **Discord & timers → Saved defaults** now stores separate Siege and Rumble

@@ -37,7 +37,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
             ttk.Entry(form,textvariable=variable,show='*'if secret else '',width=64).grid(row=row,column=1,columnspan=4,sticky='ew',padx=10,pady=3)
         form.columnconfigure(1,weight=1)
         buttons=ttk.Frame(form);buttons.grid(row=2,column=0,columnspan=5,sticky='w',pady=6)
-        for text,command in [('Save connection',self._remote_save),('Connect',self._remote_connect),('Disconnect',self._remote_disconnect),('Invite bot',self._remote_invite),('Setup guide',self._remote_help)]:ttk.Button(buttons,text=text,command=command).pack(side='left',padx=(0,6))
+        for text,command in [('Save connection',self._remote_save),('Connect',self._remote_connect),('Disconnect',self._remote_disconnect),('Invite bot',self._remote_invite),('Open bot DM',self._remote_open_dm),('Setup guide',self._remote_help)]:ttk.Button(buttons,text=text,command=command).pack(side='left',padx=(0,6))
         ttk.Checkbutton(form,text='Connect automatically when Commander opens',variable=self.discord_autoconnect).grid(row=3,column=0,columnspan=4,sticky='w')
         self.discord_install=ttk.Button(form,text='Install Discord support',command=self._remote_install);self.discord_install.grid(row=4,column=0,sticky='w',pady=6)
         ttk.Label(form,textvariable=self.discord_state,wraplength=850).grid(row=4,column=1,columnspan=4,sticky='w',padx=10)
@@ -103,6 +103,10 @@ class RemoteCenterMixin(SiegeOrdersMixin):
     def _remote_invite(self):
         if not self.discord_application:self.discord_state.set('Connect first so Commander can generate your bot invite.');return
         webbrowser.open('https://discord.com/oauth2/authorize?client_id='+self.discord_application+'&scope=bot%20applications.commands&permissions=2048')
+    def _remote_open_dm(self):
+        if not self.discord_application:self.discord_state.set('Connect first, then open the bot profile and choose Message.');return
+        webbrowser.open('https://discord.com/users/'+self.discord_application)
+
     def _remote_help(self):
         messagebox.showinfo('Discord setup','1. Create a bot at discord.com/developers/applications.\n2. Copy its Bot token into this masked field.\n3. In Discord enable User Settings → Advanced → Developer Mode, then right-click your profile → Copy User ID. Paste it here.\n4. Save, install support if needed, then Connect and Invite bot to your server.\n5. On your phone use /commander help. Allow DMs from your bot for completion alerts.\n\nNo Message Content Intent is needed. Stop the separate CM bot if it uses the same bot token. Never paste your bot token into chat.')
         webbrowser.open('https://discord.com/developers/applications')
@@ -143,7 +147,8 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         if accepted is not True:raise ValueError('The event run did not start. Review Events on your PC.')
         self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0};return mode+' started using your saved timer/phone defaults.'
     def _remote_dispatch(self,request):
-        if request.action=='help':return '/commander status\n/commander run event:Siege or Rumble\n/commander timer event:Siege enabled:true minutes:30\n/commander command name:play-status\n/commander stop\nRuns use saved PC settings; stop also disarms timers. Purchases and destructive commands require the PC.'
+        if request.action=='help':return 'DM commands: status · siege · rumble · stop · timer siege Monday 30 · timer rumble daily 30 · command play-status · cm Wingnut Amy. Paste the full Sunday attack post or Calculon roster directly into this DM.\n\n/commander status\n/commander run event:Siege or Rumble\n/commander timer event:Siege enabled:true minutes:30\n/commander command name:play-status\n/commander stop\nRuns use saved PC settings; stop also disarms timers. Purchases and destructive commands require the PC.'
+        if request.action=='orders':return self._orders_from_owner(request.target,request.arguments)
         if request.action=='status':return self._remote_status()
         if request.action=='stop':self.stop_all();return 'Stop requested. Event timers are disarmed; active workers are settling.'
         if request.action=='timer':

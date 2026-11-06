@@ -68,6 +68,32 @@ class DiscordConnection:
         @tree.command(name='cmshop',description='Review detected live CM offers')
         async def cmshop(interaction:discord.Interaction):await cm_request(interaction)
         @client.event
+        async def on_message(message):
+            # Guild messages never trigger phone commands. Only the configured
+            # owner can issue commands in this bot's private DM.
+            if message.guild is not None or message.author.bot or message.author.id!=self.inbox.owner_id:return
+            from .discord_dm import parse_dm
+            try:
+                action,target,arguments=parse_dm(message.content)
+                if action=='cm':
+                    def review():
+                        cache.ensure()
+                        if not target:
+                            cache.refresh();return '\n\n'.join(r.compact()for r in cache.engine.review_shop(cache.offers)[:6])or'Live CM offers are currently unavailable.'
+                        from .community_consensus import fetch_reddit_consensus
+                        result=cache.engine.review_name(target);cache.engine.apply_community_consensus(result,fetch_reddit_consensus(result.name));return result.compact()
+                    try:answer=await asyncio.to_thread(review)
+                    except Exception:answer='CM review is unavailable. Check Commander on your PC.'
+                else:
+                    future=self.inbox.submit(message.author.id,'dm:'+str(message.id),action,target,arguments)
+                    try:answer=await asyncio.wait_for(asyncio.wrap_future(future),timeout=20)
+                    except asyncio.TimeoutError:answer='Commander did not confirm acceptance in time. Check status before repeating an action.'
+            except (ValueError,PermissionError)as error:answer=str(error)
+            except Exception:answer='Commander could not process this DM. Check the PC before repeating an action.'
+            try:await message.channel.send(str(answer)[:1900],allowed_mentions=discord.AllowedMentions.none())
+            except Exception:self.emit({'kind':'discord_notice_failed'})
+
+        @client.event
         async def on_ready():
             self.ready=True
             self.emit({'kind':'discord_status','text':'Discord connected. Phone commands: /commander help','application_id':str(client.application_id or client.user.id)})
