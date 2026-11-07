@@ -175,7 +175,7 @@ class BrowserActionOverlapTests(unittest.TestCase):
         for method,args in (("start_run",()),("start_event",("Siege",)),("start_challenge",()),
                             ("start_swole",()),("start_adventure",())):
             app=application();app.game_panel_thread=alive_worker()
-            app._command_blocks_runner=lambda:CommandCenterMixin._command_blocks_runner(app)
+            app._command_blocks_runner=lambda **options:CommandCenterMixin._command_blocks_runner(app,**options)
             app._save_settings=Mock()
             with self.subTest(method=method),patch("atcommander.command_center.messagebox.showinfo"):
                 getattr(ATCommanderApp,method)(app,*args)

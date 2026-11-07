@@ -136,7 +136,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         return 'Commander online. Active: '+(', '.join(active)or'idle')+'\n'+'\n'.join(mode+': '+('armed ('+(DAYS[row['weekday']+1]if row['weekday']is not None else 'Every day')+'), next '+datetime.fromtimestamp(row['due']).strftime('%a %H:%M')if row['enabled']else'disarmed')for mode,row in self.event_timers.rows.items())
     def _remote_begin_event(self,mode,scheduled=False):
         if mode not in MODES:raise ValueError('Choose Siege or Rumble.')
-        if CommandCenterMixin._browser_action_busy(self):raise ValueError('Commander is busy. No event run was started.')
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):raise ValueError('Commander is busy. No event run was started.')
         if not getattr(self,'deck_rows',None):raise ValueError('Wait for Refresh account to load your saved deck selections first.')
         if mode=='Rumble'and not load_profiles().get('rumble'):raise ValueError('Set up the Rumble battle profile in Commander first.')
         defaults=deepcopy(self.event_defaults[mode])
@@ -179,7 +179,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
                 except Exception:answer='Commander could not accept this request. Review its PC activity log before trying again.'
                 request.result.set_result(answer)
         if hasattr(self,'guild_config'):self._guild_tick()
-        if CommandCenterMixin._browser_action_busy(self):return
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):return
         if not getattr(self,'deck_rows',None):return
         due=self.event_timers.due(time.time())
         if not due:return

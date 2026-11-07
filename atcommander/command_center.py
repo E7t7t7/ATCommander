@@ -53,6 +53,10 @@ def daily_result_text(data):
     return "\n".join(lines).rstrip()
 
 
+def event_only_steps(steps,schema):
+    return bool(steps)and all(getattr(schema.spec(name),'name',name)=='play'and args.get('mode')in {'siege','rumble'}for name,args in steps)
+
+
 class CommandCenterMixin:
     def _build_command_center(self):
         self.command_schema = build_service(SchemaClient())
@@ -186,7 +190,7 @@ class CommandCenterMixin:
             return messagebox.showerror("Command arguments", str(exc))
         if self.command_busy:
             return messagebox.showinfo("Command Center", "A command or routine is already running.")
-        if spec.action and CommandCenterMixin._browser_action_busy(self,include_commands=False):
+        if spec.action and CommandCenterMixin._browser_action_busy(self,include_commands=False,ignore_ads=event_only_steps([(spec.name,values)],self.command_schema)):
             return messagebox.showinfo("Command Center", "Wait for Game / Ads or stop active automation before changing account, deck or resource state.")
         if spec.destructive and not messagebox.askyesno("Review action", f"Run {spec.name}?\n\n{json.dumps(sanitize_report(values), indent=2)}\n\n{spec.description}"):
             return
@@ -197,11 +201,12 @@ class CommandCenterMixin:
     def _command_launch(self, steps, routine):
         if getattr(self,"_closing",False) or getattr(self,"command_busy",False):return False
         mutates=any(self.command_schema.spec(name).action for name,_ in steps)
-        if mutates and CommandCenterMixin._browser_action_busy(self,include_commands=False):
+        if mutates and CommandCenterMixin._browser_action_busy(self,include_commands=False,ignore_ads=event_only_steps(steps,self.command_schema)):
             if not routine:
                 messagebox.showinfo("Command Center","Wait for Game / Ads or stop active automation before starting this command.")
             return False
         self.command_busy = True; self.command_stop.clear()
+        self.command_ad_only=bool(steps)and all(getattr(self.command_schema.spec(name),"name",name)=="user-ad"for name,_ in steps)
         self.command_mutating=mutates
         self.command_run_button.configure(state="disabled")
         self.command_status.set("Running local routine…" if routine else f"Running {steps[0][0]}…")
@@ -235,6 +240,7 @@ class CommandCenterMixin:
         if event.get("kind")=="command_log":
             self._append(self.routine_log,event["message"]);return True
         if event.get("kind") == "command_result":
+            self.command_ad_only=False
             self.command_busy = False; self.command_run_button.configure(state="normal")
             self.command_result_text = event["text"]
             self.command_artifacts=event.get("artifacts",[])
@@ -450,7 +456,7 @@ class CommandCenterMixin:
         except (ValueError, KeyError):
             return messagebox.showerror("Routine", "Check saved arguments and use a repeat interval of at least 60 seconds.")
         spending = [name for name, _ in parsed if self.command_schema.spec(name).spends_resources]
-        if any(self.command_schema.spec(name).action for name,_ in parsed) and CommandCenterMixin._browser_action_busy(self,include_commands=False):
+        if any(self.command_schema.spec(name).action for name,_ in parsed) and CommandCenterMixin._browser_action_busy(self,include_commands=False,ignore_ads=event_only_steps(parsed,self.command_schema)):
             return messagebox.showinfo("Routine", "Wait for Game / Ads or stop active automation before running a routine that changes account state or spends resources.")
         if spending and not messagebox.askyesno("Review routine", "This routine spends resources:\n" + "\n".join(spending) + ("\n\nIt will repeat until stopped." if repeat else "")):
             return
@@ -460,25 +466,26 @@ class CommandCenterMixin:
     def _routine_status(self):
         self.routine_state.set("Repeating" if self.routine_enabled else "Disarmed")
 
-    def _browser_action_busy(self,*,include_commands=True,include_runners=True,ignore_thread=None):
+    def _browser_action_busy(self,*,include_commands=True,include_runners=True,ignore_thread=None,ignore_ads=False):
         """Keep browser startup/input exclusive until its existing worker settles."""
         if getattr(self,"_closing",False):return True
         if getattr(self,"learn_session",None) is not None:return True
         for name in ("game_panel_thread","ad_thread","research_thread","deck_builder_thread","reward_thread","guild_defense_thread"):
             worker=getattr(self,name,None)
+            if ignore_ads and name=="ad_thread" and worker is not None and worker is getattr(self,"event_ignored_ad_thread",None):continue
             if worker is not None and worker is not ignore_thread and worker.is_alive():return True
         if getattr(self,"research_busy",False):return True
-        if include_commands and getattr(self,"command_busy",False):return True
+        if include_commands and getattr(self,"command_busy",False) and not(ignore_ads and getattr(self,"command_ad_only",False)):return True
         if include_runners and any(getattr(getattr(self,name,None),"running",False) for name in
                 ("arena_runner","event_runner","adventure_runner","swole_runner")):return True
         return False
 
-    def _command_blocks_runner(self):
-        if CommandCenterMixin._browser_action_busy(self,include_commands=False,include_runners=False):
+    def _command_blocks_runner(self,*,ignore_ads=False):
+        if CommandCenterMixin._browser_action_busy(self,include_commands=False,include_runners=False,ignore_ads=ignore_ads):
             if not getattr(self,"_closing",False):
                 messagebox.showinfo("AT Commander","Wait for Game / Ads or the research worker to finish, or use Stop All before starting another battle runner.")
             return True
-        if getattr(self,"command_busy",False) and getattr(self,"command_mutating",False):
+        if getattr(self,"command_busy",False) and getattr(self,"command_mutating",False) and not(ignore_ads and getattr(self,"command_ad_only",False)):
             messagebox.showinfo("AT Commander","Wait for the current command/routine, or use Stop All before starting another battle runner.")
             return True
         return False
@@ -489,7 +496,7 @@ class CommandCenterMixin:
     def _command_tick(self):
         if self.routine_enabled and not self.command_busy and time.monotonic() >= self.routine_next:
             mutates = any(self.command_schema.spec(r["command"]).action for r in self.routine_steps)
-            if mutates and CommandCenterMixin._browser_action_busy(self,include_commands=False):
+            if mutates and CommandCenterMixin._browser_action_busy(self,include_commands=False,ignore_ads=event_only_steps([(r["command"],r.get("args",{}))for r in self.routine_steps],self.command_schema)):
                 self.routine_next = time.monotonic() + 10
                 self.routine_state.set("Waiting for active automation / Game / Ads")
             else:

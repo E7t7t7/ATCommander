@@ -166,7 +166,7 @@ class SiegeOrdersMixin:
         return True
 
     def _guild_apply_defense(self,manual=False):
-        if CommandCenterMixin._browser_action_busy(self):
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):
             if manual:self.guild_preview.set('Wait for current automation before applying defense.')
             return False
         if not self.guild_plan or self.guild_plan.get('defense',{}).get('error'):

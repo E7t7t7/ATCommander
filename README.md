@@ -1,4 +1,4 @@
-Current release: **1.7.32**. See [Discord battle result summaries](README_1.7.32_CHANGES.md).
+Current release: **1.7.33**. See [Siege/Rumble ad-watching independence](README_1.7.33_CHANGES.md).
 
 # AT Commander 1.7.27
 

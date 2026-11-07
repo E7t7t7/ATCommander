@@ -45,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.32"
+VERSION="1.7.33"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -961,7 +961,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
                 else:
                     self.events.put({"kind":"ad_watch_result","ok":False,"boost_level":r.get("boost_level"),"message":r.get("message") or "No active boost verified."})
             except Exception:self.events.put({"kind":"ad_watch_result","ok":False,"message":"Ad playback could not be verified. No additional ad was started."})
-        self.ad_thread=threading.Thread(target=work,daemon=True);self.ad_thread.start()
+        self.ad_thread=threading.Thread(target=work,daemon=True);self.event_ignored_ad_thread=self.ad_thread;self.ad_thread.start()
 
     def start_run(self):
         if self._command_blocks_runner():return
@@ -1039,7 +1039,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         settle()
 
     def start_event(self,mode,*,scheduled=False,defaults=None,guild_plan=None):
-        if self._command_blocks_runner():return
+        if self._command_blocks_runner(ignore_ads=mode in {"Siege","Rumble"}):return
         if self.event_runner and getattr(self.event_runner,"running",False):messagebox.showinfo("AT Commander","An event automation is already running. Stop it first.");return
         p=load_profiles(); key=mode.lower()
         if mode!="Siege" and not p.get(key):messagebox.showinfo("Needs learning",f"{mode} start-battle is not learned yet. Open Diagnostics / Learn and capture one real {mode} fight.");self.nb.select(self.diag_tab);return
