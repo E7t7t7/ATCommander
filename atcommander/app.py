@@ -45,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.33"
+VERSION="1.7.34"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -986,7 +986,8 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
             self.reward_stop.set();self.reward_due=float("inf")
         if hasattr(self,"deck_builder_stop"):self.deck_builder_stop.set()
         if hasattr(self,"app_update_stop"):self.app_update_stop.set()
-        if hasattr(self,"client_update_stop"):self.client_update_stop.set()
+        if hasattr(self,"client_update_stop"):
+            self.client_update_stop.set();self.client_update_auto_suspended=True
         if hasattr(self,"game_panel_stop"):self.game_panel_stop.set()
         if hasattr(self,"ad_stop"):self.ad_stop.set()
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
@@ -2578,6 +2579,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
     def _reset_buttons(self):self.start_btn.configure(state="normal");self.pause_btn.configure(state="disabled",text="Pause");self.stop_btn.configure(state="disabled");self.paused=False
     def _tick_clock(self):
         if self._closing:return
+        if hasattr(self,"client_update_schedule"):self._client_update_tick()
         if hasattr(self,"discord_connection"):self._remote_tick()
         if hasattr(self,"reward_auto"):self._reward_tick()
         if hasattr(self,"command_schema"):self._command_tick()

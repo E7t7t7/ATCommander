@@ -250,6 +250,7 @@ class CommandCenterMixin:
             self.command_status.set("Completed." if event["ok"] else "Stopped. Review the result before running again.")
             if event.get("routine") or event["text"].startswith("daily-plan\n"):
                 self._append(self.routine_log,event["text"])
+            if not event.get("routine") and event["text"].startswith("daily-plan\n"):self.routine_state.set("Preview ready" if event["ok"] else "Preview could not finish; see Activity")
             if event.get("routine"):
                 if not event["ok"]:
                     self.routine_enabled = False
@@ -285,61 +286,8 @@ class CommandCenterMixin:
             os.startfile(str(path))
 
     def _build_routines(self):
-        from .automation_profiles import AutomationProfiles, BUILTIN_DAILY, DailyOptions
-        from dataclasses import asdict
-        self.automation_profiles=AutomationProfiles(self.command_schema.store,self.command_schema)
-        saved=self.command_schema.store.read()
-        if self.routine_steps and len(self.automation_profiles.names())==1:
-            try:self.automation_profiles.save("Previous routine",self.routine_steps)
-            except ValueError:pass
-        head = ttk.Frame(self.routines_tab, style="Card.TFrame", padding=12); head.pack(fill="x", pady=(10, 8))
-        ttk.Label(head, text="AUTOMATION ROUTINES", style="Big.Card.TLabel").pack(anchor="w")
-        ttk.Label(head, text="Add commands from Command Center. Steps run in order and stop on an error. Repeating routines stay on this computer while Commander is open. Saved routines start disarmed when the app opens.", style="Muted.Card.TLabel", wraplength=1200).pack(anchor="w", pady=(3, 8))
-        profiles=ttk.Frame(head,style="Card.TFrame");profiles.pack(fill="x",pady=(0,8))
-        ttk.Label(profiles,text="Profile",style="Card.TLabel").pack(side="left",padx=(0,8))
-        selection=saved.get("automation_selected_profile",BUILTIN_DAILY)
-        if selection not in self.automation_profiles.names():selection=BUILTIN_DAILY
-        self.routine_profile=tk.StringVar(value=selection)
-        self.routine_profile_combo=ttk.Combobox(profiles,textvariable=self.routine_profile,values=self.automation_profiles.names(),state="readonly",width=30)
-        self.routine_profile_combo.pack(side="left")
-        self.routine_profile_combo.bind("<<ComboboxSelected>>",lambda _:self._routine_load_profile())
-        ttk.Button(profiles,text="SAVE AS…",command=self._routine_save_profile).pack(side="left",padx=8)
-        ttk.Button(profiles,text="DELETE PROFILE",command=self._routine_delete_profile).pack(side="left")
-        self.daily_frame=ttk.LabelFrame(head,text="Best Daily limits per run",padding=8);self.daily_frame.pack(fill="x",pady=(0,8))
-        defaults=asdict(DailyOptions())
-        try:daily=asdict(DailyOptions.parse(saved.get("daily_profile_options",{})))
-        except ValueError:daily=defaults
-        self.daily_vars={}
-        labels=(("nixon_budget","Nixons"),("cm_stones_budget","CM stones"),("arena_reserve","Keep Arena energy"),
-                ("adventure_reserve","Keep Adventure energy"),("swole_reserve","Keep Swole tickets"),("max_battles","Total battle limit"),
-                ("event_battles","Per-event limit"),("research_pairs","Research pairs"),("research_speedup_hours","Research speedup hours"))
-        for index,(key,label) in enumerate(labels):
-            row,column=divmod(index,3);column*=2
-            self.daily_vars[key]=tk.StringVar(value=str(daily[key]))
-            ttk.Label(self.daily_frame,text=label).grid(row=row,column=column,sticky="w",padx=(0,8),pady=3)
-            ttk.Entry(self.daily_frame,textvariable=self.daily_vars[key],width=9).grid(row=row,column=column+1,sticky="w",padx=(0,25),pady=3)
-        flags=ttk.Frame(self.daily_frame);flags.grid(row=3,column=0,columnspan=6,sticky="w",pady=(7,0))
-        for key,label in (("watch_ads","Keep real ad benefits active"),("include_events","Include available events")):
-            self.daily_vars[key]=tk.BooleanVar(value=daily[key]);ttk.Checkbutton(flags,text=label,variable=self.daily_vars[key]).pack(side="left",padx=(0,18))
-        self.daily_vars["adventure_level"]=tk.StringVar(value=daily["adventure_level"])
-        ttk.Label(self.daily_frame,text="Reads live quest requirements, claims rewards, and uses only these budgets. Unavailable or unsupported dailies are reported.",style="Muted.TLabel").grid(row=4,column=0,columnspan=6,sticky="w",pady=(6,0))
-        self.routine_state = tk.StringVar(value="Disarmed"); self.routine_interval = tk.StringVar(value="300")
-        buttons = ttk.Frame(head, style="Card.TFrame"); buttons.pack(fill="x")
-        ttk.Button(buttons,text="PREVIEW DAILY",command=self._routine_preview_daily).pack(side="left",padx=(0,8))
-        ttk.Button(buttons, text="RUN ONCE", style="Accent.TButton", command=lambda: self._routine_start(False)).pack(side="left")
-        ttk.Button(buttons, text="ARM REPEAT", command=lambda: self._routine_start(True)).pack(side="left", padx=8)
-        ttk.Button(buttons, text="STOP ROUTINE", command=self._routine_stop).pack(side="left")
-        ttk.Label(buttons, text="Repeat seconds", style="Card.TLabel").pack(side="left", padx=(18, 6))
-        ttk.Entry(buttons, textvariable=self.routine_interval, width=8).pack(side="left")
-        ttk.Label(buttons, textvariable=self.routine_state, style="Card.TLabel").pack(side="right")
-        self.routine_list = tk.Listbox(self.routines_tab, bg="#08111e", fg="#dce7f4", selectbackground="#243755", relief="flat", height=6, font=("Segoe UI", 10))
-        self.routine_list.pack(fill="x", pady=(0, 8))
-        controls = ttk.Frame(self.routines_tab); controls.pack(fill="x")
-        ttk.Button(controls, text="REMOVE STEP", command=self._routine_remove).pack(side="left")
-        ttk.Button(controls, text="CLEAR", command=self._routine_clear).pack(side="left", padx=8)
-        ttk.Button(controls, text="DAILY READ CHECK", command=self._routine_daily).pack(side="left")
-        self.routine_log = self._logbox(self.routines_tab, height=8, pady=(10, 0))
-        self._routine_load_profile()
+        from .routine_page_ui import build_routines
+        build_routines(self)
 
     def _routine_daily_options(self):
         from .automation_profiles import DailyOptions
@@ -355,7 +303,7 @@ class CommandCenterMixin:
         self.command_schema.store.update("automation_selected_profile",self.routine_profile.get())
         from .automation_profiles import BUILTIN_DAILY
         if self.routine_profile.get()==BUILTIN_DAILY:
-            self.daily_frame.pack(fill="x",pady=(0,8),before=self.daily_frame.master.winfo_children()[-1])
+            self.daily_frame.pack(fill="x",pady=(0,8),before=getattr(self,"routine_daily_anchor",self.daily_frame.master.winfo_children()[-1]))
             self.routine_steps[0]["args"]={"options":json.dumps(self._routine_daily_options())}
         else:
             self.daily_frame.pack_forget()
@@ -366,7 +314,7 @@ class CommandCenterMixin:
                     from dataclasses import asdict
                     options=asdict(DailyOptions.parse(daily.get("args",{}).get("options","{}")))
                     for key,value in options.items():self.daily_vars[key].set(value)
-                    self.daily_frame.pack(fill="x",pady=(0,8),before=self.daily_frame.master.winfo_children()[-1])
+                    self.daily_frame.pack(fill="x",pady=(0,8),before=getattr(self,"routine_daily_anchor",self.daily_frame.master.winfo_children()[-1]))
                 except ValueError:pass
         self._routine_render()
 
@@ -405,7 +353,7 @@ class CommandCenterMixin:
     def _routine_render(self):
         self.routine_list.delete(0, "end")
         for row in self.routine_steps:
-            self.routine_list.insert("end", "Best Daily — live quest plan using the limits above" if row["command"]=="daily-run" else row["command"] + "  " + json.dumps(row.get("args", {}), ensure_ascii=False))
+            self.routine_list.insert("end", "Best Daily — live quest plan using your saved limits" if row["command"]=="daily-run" else row["command"] + "  " + json.dumps(row.get("args", {}), ensure_ascii=False))
         self.command_schema.store.update("routine", self.routine_steps)
 
     def _routine_add(self):
@@ -464,7 +412,10 @@ class CommandCenterMixin:
             self.routine_every = interval; self.routine_enabled = repeat; self._routine_status()
 
     def _routine_status(self):
-        self.routine_state.set("Repeating" if self.routine_enabled else "Disarmed")
+        if getattr(self,"command_busy",False):text="Stopping…" if self.command_stop.is_set() else "Running…"
+        elif self.routine_enabled:text=f"Repeating every {max(1,getattr(self,'routine_every',300)//60)} minutes"
+        else:text="Ready"
+        self.routine_state.set(text)
 
     def _browser_action_busy(self,*,include_commands=True,include_runners=True,ignore_thread=None,ignore_ads=False):
         """Keep browser startup/input exclusive until its existing worker settles."""

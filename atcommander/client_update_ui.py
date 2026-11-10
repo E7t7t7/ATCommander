@@ -1,25 +1,39 @@
 """Background public-client checking; no account or combat action is started."""
 import threading
+import time
+from datetime import datetime
+from .command_store import CommandStore
+from .config import APP_DIR
 import tkinter as tk
 from tkinter import ttk
 from .client_updater import update_public_client_profile
 from .public_client_version import PublicClientVersionError
 
+def local_day():return datetime.now().date().isoformat()
+
+
 class ClientUpdateMixin:
     def _build_client_update(self,parent):
         self.client_update_stop=threading.Event();self.client_update_thread=None
-        self.client_update_status=tk.StringVar(value="Game connection ready to check")
+        self.client_update_schedule=CommandStore(APP_DIR/"client_update_schedule.json")
+        self.client_update_auto_due=time.monotonic()+15;self.client_update_auto_suspended=False
+        self.client_update_status=tk.StringVar(value="Automatic daily game-client check enabled")
         bar=ttk.Frame(parent,style="Card.TFrame",padding=(12,8));bar.pack(fill="x",pady=(0,8))
         ttk.Label(bar,text="Game client",style="Card.TLabel",font=("Segoe UI Semibold",10)).pack(side="left")
         ttk.Label(bar,textvariable=self.client_update_status,style="Muted.Card.TLabel").pack(side="left",padx=14)
         self.client_update_button=ttk.Button(bar,text="Check / update game client",command=self._start_client_update)
         self.client_update_button.pack(side="right")
 
-    def _start_client_update(self):
+    def _start_client_update(self,*,automatic=False):
         if getattr(self,"_closing",False):return
         worker=getattr(self,"client_update_thread",None)
         if worker is not None and worker.is_alive():
+            if automatic:return
             self.client_update_stop.set();self.client_update_status.set("Cancelling the client check…");return
+        checked_day=local_day()
+        schedule=getattr(self,"client_update_schedule",None)
+        if schedule:schedule.update("last_attempt",checked_day)
+        if not automatic:self.client_update_auto_suspended=False
         self.client_update_stop.clear()
         self.client_update_button.configure(text="Cancel check")
         self.client_update_status.set("Checking the official game client…")
@@ -28,13 +42,22 @@ class ClientUpdateMixin:
                 answer=update_public_client_profile(
                     progress=lambda text:self.events.put({"kind":"client_update_progress","text":text}),
                     should_stop=self.client_update_stop.is_set)
-                self.events.put({"kind":"client_update_done","message":answer["message"]})
+                self.events.put({"kind":"client_update_done","message":answer["message"],"checked_day":checked_day})
             except PublicClientVersionError as error:
-                self.events.put({"kind":"client_update_done","message":str(error),"error":error.reason!="client_update_cancelled"})
+                self.events.put({"kind":"client_update_done","message":str(error),"error":error.reason!="client_update_cancelled","cancelled":error.reason=="client_update_cancelled","checked_day":checked_day})
             except Exception:
-                self.events.put({"kind":"client_update_done","message":"The client check could not finish. Your existing profile was kept.","error":True})
+                self.events.put({"kind":"client_update_done","message":"The client check could not finish. Your existing profile was kept.","error":True,"checked_day":checked_day})
         self.client_update_thread=threading.Thread(target=work,daemon=True,name="AT Client Update")
         self.client_update_thread.start()
+
+    def _client_update_tick(self):
+        if getattr(self,"_closing",False) or getattr(self,"client_update_auto_suspended",False):return
+        if time.monotonic()<self.client_update_auto_due:return
+        worker=getattr(self,"client_update_thread",None)
+        if worker is not None and worker.is_alive():return
+        self.client_update_auto_due=time.monotonic()+60
+        if self.client_update_schedule.read().get("last_attempt")==local_day():return
+        self._start_client_update(automatic=True)
 
     def _client_update_event(self,event):
         if event.get("kind") not in {"client_update_progress","client_update_done"}:return False
@@ -42,4 +65,6 @@ class ClientUpdateMixin:
         self.client_update_status.set(event.get("text") or event.get("message") or "Client check finished.")
         if event["kind"]=="client_update_done":
             self.client_update_button.configure(text="Check / update game client")
+            schedule=getattr(self,"client_update_schedule",None)
+            if schedule and not event.get("error") and not event.get("cancelled"):schedule.update("last_success",event.get("checked_day")or local_day())
         return True
