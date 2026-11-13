@@ -29,7 +29,7 @@ _MAX_INDEX_BYTES = 256 * 1024
 _LOCK = threading.RLock()
 
 # Each entry was checked against its exact public native build. These builds use
-# the same message/client hash material and Unity engine 6000.3.6f1. Do not infer
+# the same message/client hash material and verified Unity version helpers. Do not infer
 # an unverified future entry from a nearby version or cached account response.
 _VERIFIED_PROFILES = {
     "Throwdown_WebGL_v1.181.0_r39893": {
@@ -39,6 +39,12 @@ _VERIFIED_PROFILES = {
     "Throwdown_WebGL_v1.182.0_r40510": {
         "client_version": "1182000", "client_version_full": "1.182.0",
         "platform": "Web", "unity": "Unity6000_3_6",
+    },
+    # Official 1.184 assets: Unity 6000.3.27f2, all four signer/helper
+    # fingerprints identical to 1.183. Inspected without executing the client.
+    "Throwdown_WebGL_v1.184.0_r41124": {
+        "client_version":"1184000", "client_version_full":"1.184.0",
+        "platform":"Web", "unity":"Unity6000_3_27",
     },
     "Throwdown_WebGL_v1.183.0_r40786": {
         "client_version": "1183000", "client_version_full": "1.183.0",

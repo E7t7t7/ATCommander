@@ -15,7 +15,7 @@ from . import public_client_version as versions
 from .public_native import NativeBuild,NativeCompatibilityError,unity_archive
 
 # These relocation-independent structures match the inspected official
-# 1.182 and 1.183 clients, including literal/type/method bindings.
+# 1.182, 1.183 and 1.184 clients, including literal/type/method bindings.
 EXPECTED={
     "hash":["e0d8d2c24f5c1234700d83103c6e538cd5ae9e6720378a69c79b8972f185ac51",128],
     "version":["4d8456e72c2eb7333f422302f0b720ec003f6a3c0a09a46d73a6a624396d2499",28],
@@ -23,16 +23,26 @@ EXPECTED={
     "send":["0ea6a0072f7faa995286f4781b4eab34fc952e522393f4e899cb70b5d340a1ae",5876],
 }
 ASSET_LIMIT=160*1024*1024
+VERIFIER_REVISION=2
 
 def _registry_path():
     return Path.home()/".atcommander"/"verified_client_builds.json"
 
-def _profile(build):
+def _unity_tag(engine):
+    # Engine patch releases can move while the exact native helpers stay the
+    # same. The getter fingerprint below still has to match before accepting
+    # any downloaded build; this only derives its verified Unity field.
+    match=re.fullmatch(r"6000\.3\.((?:0|[1-9][0-9]{0,2}))f[0-9]{1,2}",engine)if isinstance(engine,str)else None
+    if not match:raise NativeCompatibilityError("The public Unity engine moved outside the supported family")
+    return "Unity6000_3_"+match[1]
+
+
+def _profile(build,engine="6000.3.6f1"):
     match=re.fullmatch(versions._BUILD_PATTERN,build) if isinstance(build,str) else None
     if not match:raise ValueError("Invalid public build")
     parts=tuple(map(int,match[1].split(".")))
     return {"client_version":str(parts[0]*1000000+parts[1]*1000+parts[2]),
-            "client_version_full":match[1],"platform":"Web","unity":"Unity6000_3_6"}
+            "client_version_full":match[1],"platform":"Web","unity":_unity_tag(engine)}
 
 def _registry(path):
     path=Path(path)
@@ -45,12 +55,14 @@ def _registry(path):
     return value
 
 def _valid_record(build,record):
-    if not isinstance(record,dict) or set(record)!={"profile","proof"} or record["profile"]!=_profile(build):
-        return False
+    if not isinstance(record,dict) or set(record)!={"profile","proof"}:return False
     proof=record["proof"]
     if not isinstance(proof,dict) or set(proof)!={*EXPECTED,"engine","wasm_sha256","metadata_sha256"}:return False
-    if proof["engine"]!="6000.3.6f1" or any(proof[key]!=value for key,value in EXPECTED.items()):return False
+    try:expected_profile=_profile(build,proof['engine'])
+    except (ValueError,TypeError):return False
+    if record['profile']!=expected_profile or any(proof[key]!=value for key,value in EXPECTED.items()):return False
     return all(isinstance(proof[key],str) and re.fullmatch("[a-f0-9]{64}",proof[key]) for key in ("wasm_sha256","metadata_sha256"))
+
 
 def load_verified_profile(build,*,path=None):
     try:
@@ -98,7 +110,7 @@ def _decode_asset(data,magic,stopped):
 def _download(session,url,label,magic,emit,stopped):
     _cancel(stopped);emit(f"Downloading {label}…")
     with session.get(url,stream=True,timeout=25,allow_redirects=False) as response:
-        if response.status_code!=200:raise NativeCompatibilityError("Official client download unavailable")
+        if response.status_code!=200:raise NativeCompatibilityError(f"Official client download unavailable (HTTP {response.status_code})")
         chunks=bytearray();last=0
         for block in response.iter_content(65536):
             _cancel(stopped);chunks.extend(block)
@@ -119,7 +131,7 @@ def verify_assets(wasm,data,*,should_stop=lambda:False):
     at+=first+1
     second=bytes(bundle[at:at+128]).find(b"\0")
     engine=bytes(bundle[at:at+second]).decode("ascii") if second>=0 else ""
-    if engine!="6000.3.6f1":raise NativeCompatibilityError("The public Unity engine changed")
+    _unity_tag(engine)
     native=NativeBuild(wasm,metadata,should_stop)
     actual=native.signer_fingerprints(_MESSAGE_FORMAT.encode(),_CLIENT_FORMAT.encode())
     for key in ("hash","version","unity"):
@@ -128,6 +140,24 @@ def verify_assets(wasm,data,*,should_stop=lambda:False):
         raise NativeCompatibilityError("The public request signer changed")
     return {**EXPECTED,"engine":engine,"wasm_sha256":hashlib.sha256(wasm).hexdigest(),
             "metadata_sha256":hashlib.sha256(metadata).hexdigest()}
+
+def _public_failure_detail(error):
+    allowed={"The public Unity engine moved outside the supported family","The public signing helpers changed",
+        "The public request signer changed","The public signing formats changed","Public signer is ambiguous",
+        "The public asset layout changed","The current public build is ambiguous","Public product versions disagree",
+        "Unsupported public metadata layout","Unrecognized public native code","Unrecognized public client archive",
+        "Public decompression limit","Public asset limit exceeded","Truncated public compressed asset",
+        "Unknown public Unity bundle","Invalid public Unity version","Public asset decompressor unavailable"}
+    if isinstance(error,NativeCompatibilityError):
+        text=str(error)
+        if text in allowed or re.fullmatch(r"Official client download unavailable \(HTTP [1-5][0-9]{2}\)",text):return text
+        return "The public client structure is not supported"
+    if isinstance(error,requests.RequestException):
+        category=type(error).__name__
+        if category not in {"Timeout","ConnectTimeout","ReadTimeout","ConnectionError","HTTPError","TooManyRedirects","SSLError","ProxyError","RequestException","ChunkedEncodingError","ContentDecodingError"}:category="RequestException"
+        return "The public client request failed ("+category+")"
+    return "The public client assets could not be inspected"
+
 
 def update_public_client_profile(*,progress=None,should_stop=None,cache_path=None,verified_path=None):
     emit=progress or (lambda message:None);stopped=should_stop or (lambda:False)
@@ -144,7 +174,8 @@ def update_public_client_profile(*,progress=None,should_stop=None,cache_path=Non
             if set(versions._PRODUCT_RE.findall(index))!={version}:raise NativeCompatibilityError("Public product versions disagree")
             _cancel(stopped)
             known=versions._VERIFIED_PROFILES.get(build) or load_verified_profile(build,path=verified_path)
-            if known!=profile:
+            if known is not None:profile=dict(known)
+            if known is None:
                 # Only the official same-build asset paths declared by the
                 # launcher are used; no remote script is executed.
                 if (not re.search(r"\bbuildUrl\s*=\s*[\"']Build[\"']",index) or not all(re.search(r"\b"+key+r"\s*:\s*buildUrl\s*\+\s*[\"']/"+filename+r"[\"']",index)
@@ -154,6 +185,7 @@ def update_public_client_profile(*,progress=None,should_stop=None,cache_path=Non
                 data=_download(session,base+"Build/WebGL.data.unityweb","game metadata",b"UnityWebData1.0\0",emit,stopped)
                 emit("Verifying request signing and client compatibility…")
                 proof=verify_assets(wasm,data,should_stop=stopped);_cancel(stopped)
+                profile=_profile(build,proof["engine"])
                 path=Path(verified_path or _registry_path())
                 with versions._LOCK:
                     registry=_registry(path);registry["builds"][build]={"profile":profile,"proof":proof}
@@ -167,8 +199,10 @@ def update_public_client_profile(*,progress=None,should_stop=None,cache_path=Non
         emit(f"Game client {version} is ready.")
         return {"build":build,"profile":profile,"message":f"Game client {version} checked and ready. You can resume combat."}
     except versions.PublicClientVersionError:raise
-    except Exception:
+    except Exception as error:
         if stopped():raise versions.PublicClientVersionError("Game client check cancelled.",reason="client_update_cancelled") from None
+        detail=_public_failure_detail(error)
+        label="Game client "+version if 'version'in locals()else"Game client"
         raise versions.PublicClientVersionError(
-            "This client could not be verified automatically. The existing profile was preserved; combat remains paused for an incompatible build.",
+            label+" could not be verified: "+detail+". The existing profile was preserved.",
             reason="client_update_verification_failed") from None

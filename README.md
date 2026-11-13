@@ -1,4 +1,4 @@
-Current release: **1.7.34**. See [daily client checks and simpler daily routines](README_1.7.34_CHANGES.md).
+Current release: **1.7.35**. See [game client 1.184 compatibility](README_1.7.35_CHANGES.md).
 
 # AT Commander 1.7.27
 

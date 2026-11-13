@@ -39,6 +39,13 @@ class DailyClientCheckTests(unittest.TestCase):
   self.app.client_update_auto_suspended=True
   with patch('atcommander.client_update_ui.threading.Thread',side_effect=AssertionError('No auto start')):self.app._client_update_tick()
 
+class VerifierUpgradeTests(unittest.TestCase):
+ setUp=DailyClientCheckTests.setUp
+ def test_new_checker_rechecks_an_older_failed_attempt_today(self):
+  self.store.update('last_attempt','2026-11-13');self.store.update('verifier_revision',1)
+  with patch('atcommander.client_update_ui.local_day',return_value='2026-11-13'),patch('atcommander.client_update_ui.threading.Thread',side_effect=immediate),patch('atcommander.client_update_ui.update_public_client_profile',return_value={'message':'Ready'})as check:
+   self.app._client_update_tick();self.app._client_update_tick();check.assert_called_once()
+
 class DailyRoutineUiTests(unittest.TestCase):
  def test_simple_layout_and_saved_custom_daily_limits(self):
   import tkinter as tk

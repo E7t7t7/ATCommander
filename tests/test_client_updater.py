@@ -142,3 +142,45 @@ class NativeReaderTests(unittest.TestCase):
         self.assertNotEqual(native.fingerprint(1,{81000:("literal","field-hash")}),before)
 
 if __name__=="__main__":unittest.main()
+
+class UnityPatchCompatibilityTests(unittest.TestCase):
+ def test_profile_uses_actual_engine_patch_and_rejects_other_families(self):
+  self.assertEqual(updater._profile(BUILD,'6000.3.27f2')['unity'],'Unity6000_3_27')
+  for engine in ('6000.4.27f2','2022.3.27f2','6000.3.27f2 private','6000.3.0027f2'):
+   with self.subTest(engine=engine),self.assertRaises(NativeCompatibilityError):updater._profile(BUILD,engine)
+ def test_record_is_bound_to_its_actual_engine_field(self):
+  modern=proof();modern['engine']='6000.3.27f2'
+  record={'profile':updater._profile(BUILD,'6000.3.27f2'),'proof':modern}
+  self.assertTrue(updater._valid_record(BUILD,record))
+  record['profile']['unity']='Unity6000_3_6';self.assertFalse(updater._valid_record(BUILD,record))
+ def test_real_official_184_profile_is_bundled_with_correct_tag(self):
+  profile=versions._profile_for_build('Throwdown_WebGL_v1.184.0_r41124')
+  self.assertEqual(profile,{'client_version':'1184000','client_version_full':'1.184.0','platform':'Web','unity':'Unity6000_3_27'})
+ def test_engine_patch_still_requires_matching_native_signers(self):
+  files={'Il2CppData/Metadata/global-metadata.dat':b'fixture-metadata','data.unity3d':b'UnityFS\0'+struct.pack('>I',6)+b'5.x.x\x006000.3.27f2\0'}
+  fingerprints={key:copy.deepcopy(updater.EXPECTED[key])for key in ('hash','version','unity')};fingerprints['send']=[copy.deepcopy(updater.EXPECTED['send'])]
+  with patch.object(updater,'unity_archive',return_value=files),patch.object(updater,'NativeBuild')as native:
+   native.return_value.signer_fingerprints.return_value=fingerprints
+   self.assertEqual(updater.verify_assets(b'wasm',b'data')['engine'],'6000.3.27f2')
+   fingerprints['send']=[['0'*64,5876]]
+   with self.assertRaisesRegex(NativeCompatibilityError,'request signer changed'):updater.verify_assets(b'wasm',b'data')
+
+class ModernUpdaterTests(unittest.TestCase):
+ setUp=ClientUpdaterTests.setUp
+ session=ClientUpdaterTests.session
+ update=ClientUpdaterTests.update
+ def test_unknown_patch_profile_comes_from_verified_engine(self):
+  self.session();modern=proof();modern['engine']='6000.3.27f2'
+  with patch.object(updater,'verify_assets',return_value=modern):result=self.update()
+  self.assertEqual(result['profile']['unity'],'Unity6000_3_27')
+  self.assertEqual(updater.load_verified_profile(BUILD,path=self.registry),result['profile'])
+ def test_cached_modern_engine_does_not_redownload_native_assets(self):
+  modern=proof();modern['engine']='6000.3.27f2';profile=updater._profile(BUILD,modern['engine'])
+  self.registry.write_text(json.dumps({'schema':1,'builds':{BUILD:{'profile':profile,'proof':modern}}}))
+  session=self.session()
+  with patch.object(updater,'verify_assets',side_effect=AssertionError('Already verified')):result=self.update()
+  self.assertEqual(result['profile'],profile);self.assertEqual(len(session.calls),2)
+ def test_public_failure_message_explains_compatibility_reason(self):
+  self.session()
+  with patch.object(updater,'verify_assets',side_effect=NativeCompatibilityError('The public request signer changed')):
+   with self.assertRaisesRegex(versions.PublicClientVersionError,'request signer changed'):self.update()

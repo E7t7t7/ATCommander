@@ -6,7 +6,7 @@ from .command_store import CommandStore
 from .config import APP_DIR
 import tkinter as tk
 from tkinter import ttk
-from .client_updater import update_public_client_profile
+from .client_updater import update_public_client_profile,VERIFIER_REVISION
 from .public_client_version import PublicClientVersionError
 
 def local_day():return datetime.now().date().isoformat()
@@ -32,7 +32,8 @@ class ClientUpdateMixin:
             self.client_update_stop.set();self.client_update_status.set("Cancelling the client check…");return
         checked_day=local_day()
         schedule=getattr(self,"client_update_schedule",None)
-        if schedule:schedule.update("last_attempt",checked_day)
+        if schedule:
+            schedule.update("last_attempt",checked_day);schedule.update("verifier_revision",VERIFIER_REVISION)
         if not automatic:self.client_update_auto_suspended=False
         self.client_update_stop.clear()
         self.client_update_button.configure(text="Cancel check")
@@ -56,7 +57,8 @@ class ClientUpdateMixin:
         worker=getattr(self,"client_update_thread",None)
         if worker is not None and worker.is_alive():return
         self.client_update_auto_due=time.monotonic()+60
-        if self.client_update_schedule.read().get("last_attempt")==local_day():return
+        schedule=self.client_update_schedule.read()
+        if schedule.get("last_attempt")==local_day() and schedule.get("verifier_revision")==VERIFIER_REVISION:return
         self._start_client_update(automatic=True)
 
     def _client_update_event(self,event):

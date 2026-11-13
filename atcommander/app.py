@@ -45,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.34"
+VERSION="1.7.35"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
