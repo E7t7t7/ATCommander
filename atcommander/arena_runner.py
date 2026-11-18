@@ -4,6 +4,7 @@ import threading
 import time
 from typing import Any, Callable
 
+from .event_priority import checkpoint,priority_wait
 from .api import ATClient, ATApiError
 from .credentials import load_credentials
 from .session_stats import SessionTracker, build_inventory_snapshot
@@ -146,6 +147,7 @@ class ArenaRunner:
             while not self._stop.is_set():
                 if self.battle_limit and completed >= self.battle_limit:
                     break
+                if not checkpoint(self,self._stop,self.lifetime.load):break
                 if not self._wait_if_paused():
                     break
 
@@ -159,7 +161,7 @@ class ArenaRunner:
                         if energy <= self.reserve_energy:
                             if self.continuous_monitor:
                                 self._emit("log", message=f"Arena energy {energy} reached reserve {self.reserve_energy}; monitoring every {self.energy_poll_seconds}s.")
-                                self._stop.wait(self.energy_poll_seconds)
+                                priority_wait(self,self._stop,self.energy_poll_seconds)
                                 continue
                             self._emit("log", message=f"Arena reserve reached ({energy}/{self.reserve_energy}); session complete.")
                             break

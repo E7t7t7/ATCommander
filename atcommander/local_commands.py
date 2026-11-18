@@ -321,6 +321,10 @@ class LocalCommandService:
 
     def execute(self, name: str, args: dict[str, Any] | str | None = None) -> CommandResult:
         spec = self.spec(name)
+        from .event_priority import checkpoint
+        stop=getattr(self,'stop',None)
+        if stop is not None and getattr(self,'event_priority',None)is not None and not checkpoint(self,stop,self.context.invalidate):
+            return CommandResult(message='Stopped before the next command.')
         if isinstance(args, str):
             args = parse_argument_text(spec, args)
         if spec.name=="play":

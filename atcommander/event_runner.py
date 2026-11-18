@@ -2,6 +2,7 @@ from __future__ import annotations
 import threading, time
 from copy import deepcopy
 from typing import Any, Callable
+from .event_priority import checkpoint,priority_wait
 from .api import ATClient, ATApiError
 from .credentials import load_credentials
 from .strategy import policy_for_label,is_melee_event
@@ -33,7 +34,17 @@ class EventBattleRunner:
     def stop(self): self._stop.set(); self._pause.clear()
     def pause(self,p=True): self._pause.set() if p else self._pause.clear()
     def _emit(self,k,**kw):
-        try:self.event({"kind":k,"mode":self.mode,**kw})
+        if k in {'finished','fatal'}and getattr(self,'priority_restore',False):
+            if k=='finished'and not kw.get('stopped')and getattr(self,'_priority_original',None)is not None:
+                try:
+                    from .event_priority import restore_selection
+                    restore_selection(self._client,self._priority_original)
+                    kw['priority_restored']=True
+                except Exception:
+                    k='fatal';kw['message']='Scheduled event ended, but the previous deck/hero could not be verified. Regular tasks remain held; use Stop All and review the account.'
+            elif k=='finished'and not kw.get('stopped'):
+                k='fatal';kw['message']='The previous deck/hero was not captured; regular tasks remain held for review.'
+        try:self.event({"kind":k,"mode":self.mode,"runner_key":id(self),**kw})
         except Exception:pass
     def _wait(self):
         while self._pause.is_set() and not self._stop.is_set(): time.sleep(.1)
@@ -110,6 +121,9 @@ class EventBattleRunner:
     def _run(self):
         try:
             c=ATClient(load_credentials());self._client=c;init=c.init();key=self.mode.lower()
+            if getattr(self,'priority_restore',False):
+                from .event_priority import capture_selection
+                self._priority_original=capture_selection(c,init)
             if self.event_defaults is not None:
                 from .event_defaults import validated_defaults
                 values=validated_defaults(self.event_defaults,init)
@@ -148,18 +162,19 @@ class EventBattleRunner:
                         self._emit("log",message=f"Siege defense island could not be changed (possibly already live): {exc}. Attack monitor will continue.")
                 n=0; last_wait=""; self._emit("status",text="Siege armed / monitoring")
                 while not self._stop.is_set():
+                    if not checkpoint(self,self._stop):break
                     if not self._wait():break
                     status=c.get_guild_siege_status()
                     if not isinstance(status,dict) or status.get("result") is False:
                         if self.siege_once:raise ATApiError("Scheduled Siege status was unavailable; timer paused without an attack.")
                         msg="Siege status refresh was rejected or unavailable; waiting for a fresh status before considering an attack."
                         if msg!=last_wait:self._emit("log",message=msg);last_wait=msg
-                        self._stop.wait(self.siege_poll_seconds);continue
+                        priority_wait(self,self._stop,self.siege_poll_seconds);continue
                     self._bind_guild_orders(status)
                     st, enemy=self._siege_status_rows(status)
                     if st.get("result") is False:
                         if self.siege_once:raise ATApiError("Scheduled Siege status was rejected; timer paused without an attack.")
-                        self._stop.wait(self.siege_poll_seconds);continue
+                        priority_wait(self,self._stop,self.siege_poll_seconds);continue
                     try: phase=int(st.get("phase")) if st.get("phase") is not None else None
                     except Exception: phase=None
                     try: attacks=int(st.get("num_attacks") or 0)
@@ -174,7 +189,7 @@ class EventBattleRunner:
                             self._emit("log",message="Siege is outside the attack phase; next timer check will try again.");break
                         msg=f"Siege armed: phase {phase}; waiting for the attack phase."
                         if msg!=last_wait:self._emit("log",message=msg);last_wait=msg
-                        self._stop.wait(self.siege_poll_seconds);continue
+                        priority_wait(self,self._stop,self.siege_poll_seconds);continue
                     if attacks<=0:
                         self._emit("log",message="Siege is live but no attacks remain; run complete.");break
                     if not target:
@@ -185,7 +200,7 @@ class EventBattleRunner:
                     response,state=self._try_siege_start(c,st,target)
                     if not state or not state.get("battle_id"):
                         if self.siege_once:raise ATApiError("Scheduled Siege returned no accepted fight; review before restarting its timer.")
-                        self._stop.wait(self.siege_poll_seconds);continue
+                        priority_wait(self,self._stop,self.siege_poll_seconds);continue
                     n+=1;opp=c.opponent_name(state);self._emit("battle_start",number=n,opponent=opp)
                     won,moves=self._drive(c,state,n,opp);self.lifetime.record_battle(self.mode,won);self._emit("battle_end",number=n,opponent=opp,won=won,moves=moves,lifetime=self.lifetime.to_dict());time.sleep(self.battle_delay)
                 self._emit("finished",stopped=self._stop.is_set(),lifetime=self.lifetime.to_dict());return
@@ -199,6 +214,7 @@ class EventBattleRunner:
                 self._emit("log",message=f"{self.mode} defense deck applied.")
             n=0; self._emit("status",text=f"{self.mode} running")
             while not self._stop.is_set():
+                if not checkpoint(self,self._stop):break
                 if not self._wait():break
                 response=c.call_profile(start_profile,{"deck_id":self.defense_deck_id or ""})
                 state=c.extract_battle_data(response)
@@ -241,7 +257,7 @@ class ChallengeBattleRunner:
         self._stop.clear();self._thread=threading.Thread(target=self._run,daemon=True);self._thread.start()
     def stop(self):self._stop.set()
     def _emit(self,k,**kw):
-        try:self.event({"kind":k,"mode":"Challenge",**kw})
+        try:self.event({"kind":k,"mode":"Challenge","runner_key":id(self),**kw})
         except Exception:pass
     def _drive(self,c,state,n):
         bid=state.get("battle_id");hid=state.get("host_id");cur=state
@@ -261,6 +277,7 @@ class ChallengeBattleRunner:
                 c.apply_selection(deck_id=self.offense_deck_id,hero_id=self.offense_hero_id);self._emit("log",message="Challenge offense deck/hero applied.")
             n=0;self._emit("status",text=f"{self.name} running")
             while not self._stop.is_set():
+                if not checkpoint(self,self._stop):break
                 # Each fight must use the current event's own challenge ID and
                 # level. A failed refresh must never reuse the previous fight.
                 try:

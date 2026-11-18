@@ -634,7 +634,13 @@ class ResearchAutomation:
                 self._queue_replaced=True
             self._queue_by_pair={row["pair"]:row for row in self.state["queue"]}
             while True:
-                self._check();self._reconcile();known=self._known();tasks=research_tasks(self.live)
+                self._check();self._reconcile()
+                from .event_priority import checkpoint
+                gate=getattr(self.service,'event_priority',None)
+                yielding=gate is not None and gate.requested
+                if not checkpoint(self.service,self.stop,self.service.context.invalidate):raise _Stopped()
+                if yielding:self._fresh(initial=True);self._reconcile()
+                known=self._known();tasks=research_tasks(self.live)
                 for index,row in enumerate(self.state["queue"]):
                     if index%128==0:self._check()
                     if row["pair"] in known:self._mark_done(row["pair"])

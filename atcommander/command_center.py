@@ -220,6 +220,8 @@ class CommandCenterMixin:
                         emit=lambda event:self.events.put({"kind":"command_log","message":event.get("message",str(event)) if isinstance(event,dict) else str(event)}))
                     self.command_service=service
                 service.stop = self.command_stop
+                from .event_priority import bind
+                bind(self,service,"commands")
                 for name, args in steps:
                     if self.command_stop.is_set():
                         outputs.append("Stopped before the next command."); break
@@ -417,17 +419,22 @@ class CommandCenterMixin:
         else:text="Ready"
         self.routine_state.set(text)
 
-    def _browser_action_busy(self,*,include_commands=True,include_runners=True,ignore_thread=None,ignore_ads=False):
+    def _browser_action_busy(self,*,include_commands=True,include_runners=True,ignore_thread=None,ignore_ads=False,priority=False):
         """Keep browser startup/input exclusive until its existing worker settles."""
         if getattr(self,"_closing",False):return True
+        gate=getattr(self,'event_priority',None)
+        priority=priority or getattr(self,'_priority_launch',False)
+        if gate is not None and gate.requested and not priority:return True
+        parked=lambda owner:bool(priority and gate is not None and gate.parked(owner))
         if getattr(self,"learn_session",None) is not None:return True
         for name in ("game_panel_thread","ad_thread","research_thread","deck_builder_thread","reward_thread","guild_defense_thread"):
             worker=getattr(self,name,None)
+            if name=='research_thread'and parked('commands'):continue
             if ignore_ads and name=="ad_thread" and worker is not None and worker is getattr(self,"event_ignored_ad_thread",None):continue
             if worker is not None and worker is not ignore_thread and worker.is_alive():return True
-        if getattr(self,"research_busy",False):return True
-        if include_commands and getattr(self,"command_busy",False) and not(ignore_ads and getattr(self,"command_ad_only",False)):return True
-        if include_runners and any(getattr(getattr(self,name,None),"running",False) for name in
+        if getattr(self,"research_busy",False)and not parked("commands"):return True
+        if include_commands and getattr(self,"command_busy",False) and not parked("commands") and not(ignore_ads and getattr(self,"command_ad_only",False)):return True
+        if include_runners and any(getattr(getattr(self,name,None),"running",False)and not parked(name) for name in
                 ("arena_runner","event_runner","adventure_runner","swole_runner")):return True
         return False
 
@@ -436,7 +443,9 @@ class CommandCenterMixin:
             if not getattr(self,"_closing",False):
                 messagebox.showinfo("AT Commander","Wait for Game / Ads or the research worker to finish, or use Stop All before starting another battle runner.")
             return True
-        if getattr(self,"command_busy",False) and getattr(self,"command_mutating",False) and not(ignore_ads and getattr(self,"command_ad_only",False)):
+        gate=getattr(self,'event_priority',None)
+        parked=bool(getattr(self,'_priority_launch',False)and gate is not None and gate.parked('commands'))
+        if getattr(self,"command_busy",False) and not parked and getattr(self,"command_mutating",False) and not(ignore_ads and getattr(self,"command_ad_only",False)):
             messagebox.showinfo("AT Commander","Wait for the current command/routine, or use Stop All before starting another battle runner.")
             return True
         return False

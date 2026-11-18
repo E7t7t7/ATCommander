@@ -120,7 +120,7 @@ class RemoteDispatchTests(unittest.TestCase):
   with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=True):
    RemoteCenterMixin._remote_tick(app);RemoteCenterMixin._remote_tick(app)
   self.assertFalse(app.event_timers.rows['Rumble']['active']);self.assertEqual(app.event_timers.rows['Rumble']['due'],0)
-  app._remote_notify.assert_called_once();self.assertIn('Research',app._remote_notify.call_args.args[0])
+  app._remote_notify.assert_called_once();self.assertIn('current battle/action',app._remote_notify.call_args.args[0])
   self.assertTrue(app.event_timers.rows['Rumble']['enabled'])
  def test_due_run_starts_as_soon_as_busy_worker_settles(self):
   app=self.app()

@@ -1,6 +1,7 @@
 from __future__ import annotations
 import threading,time
 from typing import Any,Callable
+from .event_priority import checkpoint,priority_wait
 from .api import ATClient,ATApiError
 from .credentials import load_credentials
 from .preflight import ad_preflight
@@ -103,6 +104,7 @@ class SwoleTrainingRunner:
     def _do_fights(self,count:int)->bool:
         total=max(1,int(count));done=0;last_energy_marker=None;self._fights_completed=0
         while done<total and not self._stop.is_set():
+            if not checkpoint(self,self._stop):return False
             status=self._status(); tickets=self._ticket_state(status)
             if self._stop.is_set():return False
             cur=tickets["current"];mx=tickets["max"];cost=tickets["cost"]
@@ -118,7 +120,7 @@ class SwoleTrainingRunner:
             # the step or terminate the trainer.
             if cur is not None and cur<cost:
                 self._emit("swole_wait",message=f"Swole tickets {cur}/{mx if mx is not None else '—'}; need {cost} per fight. Keeping this fight block queued and checking again in {self.poll}s.")
-                self._stop.wait(self.poll);continue
+                priority_wait(self,self._stop,self.poll);continue
 
             challenge_id=tickets["challenge_id"]
             # The challenge ID is distinct from the outer Swole event ID, and
@@ -165,6 +167,7 @@ class SwoleTrainingRunner:
             self.c=ATClient(load_credentials(),should_stop=self._stop.is_set); init=self.c.init(); ad_preflight(self.c,init,lambda m:self._emit("log",message=m), auto_watch=self.auto_watch_ads)
             self._emit("status",text="Swole schedule running")
             while q and not self._stop.is_set():
+                if not checkpoint(self,self._stop):break
                 status=self._status(); task=self._active_task(status); entry=q[0]; typ=entry.get("type","train")
                 if typ=="label":
                     self._emit("log",message=str(entry.get("text") or "Schedule section"));q.pop(0);continue
@@ -174,11 +177,11 @@ class SwoleTrainingRunner:
                         if end and end<=now:
                             idx=task.get("task_index");self._emit("log",message=f"Training finished; claiming task {idx} before continuing.")
                             self._last_mutation=self.c.complete_swole_training(idx);self._stop.wait(1);continue
-                        self._emit("swole_wait",message=f"WAIT TRAINING: active task still running; checking again in {self.poll}s.");self._stop.wait(self.poll);continue
+                        self._emit("swole_wait",message=f"WAIT TRAINING: active task still running; checking again in {self.poll}s.");priority_wait(self,self._stop,self.poll);continue
                     self._emit("log",message="WAIT TRAINING: no active training task; continuing.");q.pop(0);continue
                 if typ=="wait":
                     sec=max(1,int(entry.get("seconds") or 1));label=str(entry.get("label") or f"{sec}s")
-                    self._emit("log",message=f"Schedule wait: {label}.");self._stop.wait(sec);q.pop(0);continue
+                    self._emit("log",message=f"Schedule wait: {label}.");priority_wait(self,self._stop,sec);q.pop(0);continue
                 if typ=="fight":
                     requested=int(entry.get('count') or 1)
                     self._emit("log",message=f"Running {requested} scheduled Swole fight(s).")
@@ -193,7 +196,7 @@ class SwoleTrainingRunner:
                     if end and end<=now:
                         idx=task.get("task_index");self._emit("log",message=f"Completing finished Swole training task {idx}.")
                         self._last_mutation=self.c.complete_swole_training(idx);self._stop.wait(1);continue
-                    hid=str(task.get("task_id_1") or "");self._emit("swole_wait",message=f"Training hero {hid} is active until {end}; next training step waits {self.poll}s (fight blocks can be placed before that step).");self._stop.wait(self.poll);continue
+                    hid=str(task.get("task_id_1") or "");self._emit("swole_wait",message=f"Training hero {hid} is active until {end}; next training step waits {self.poll}s (fight blocks can be placed before that step).");priority_wait(self,self._stop,self.poll);continue
                 hid=str(entry.get("id") or "");target=int(entry.get("target_level") or 1);cur=self._hero_level(status,hid)
                 if cur is not None and cur>=target:
                     self._emit("log",message=f"{entry.get('name',hid)} already reached target {target}; advancing.");q.pop(0);continue

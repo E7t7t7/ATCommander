@@ -205,6 +205,9 @@ def run_takeover_battles(service, args):
     hero_reports = []
     attempted = set()
     for _ in range(limit):
+        from .event_priority import checkpoint
+        stop=getattr(service,'stop',None)
+        if stop is not None and not checkpoint(service,stop,service.context.invalidate):break
         if getattr(service, "stop", None) is not None and service.stop.is_set():
             stop_reason = "Takeover stopped before another battle."
             break

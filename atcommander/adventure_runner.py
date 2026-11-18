@@ -1,6 +1,7 @@
 from __future__ import annotations
 import threading, time
 from typing import Any, Callable
+from .event_priority import checkpoint,priority_wait
 from .api import ATClient, ATApiError, ATNetworkError
 from .credentials import load_credentials
 from .strategy import SingleComboRushPolicy
@@ -96,12 +97,13 @@ class AdventureRunner:
             ad_preflight(self._client,init,lambda m:self._emit("log",message=m), auto_watch=self.auto_watch_ads)
             n=0; self._emit("status",text=f"Farming mission {self.mission_id}")
             while not self._stop.is_set() and (self.battle_limit==0 or n<self.battle_limit):
+                if not checkpoint(self,self._stop):break
                 try:
                     cur=self._read("account refresh",self._client.init); en,max_en=self._energy(cur)
                     if en is not None:
                         self._emit("adventure_energy",current=en,max=max_en,reserve=self.reserve)
                         if en<=self.reserve:
-                            if self.continuous:self._stop.wait(60); continue
+                            if self.continuous:priority_wait(self,self._stop,60); continue
                             self._emit("log",message=f"Adventure energy {en} reached reserve {self.reserve}."); break
                     r=self._send_once("battle start",lambda:self._client.call("startMission",{"mission_id":str(self.mission_id)}))
                 except ATApiError as exc:
@@ -239,6 +241,7 @@ class AdventureRunner:
         n=0;spent=0;losses=0;farm_announced=False
         self._emit("status",text="Completing Adventure islands")
         while not self._stop.is_set() and (self.battle_limit==0 or n<self.battle_limit):
+            if not checkpoint(self,self._stop):break
             live=self._read("account refresh",self._client.init)
             if self._stop.is_set():break
             scan=self._scan(live)
@@ -257,7 +260,7 @@ class AdventureRunner:
                     self._emit("adventure_farm_resume",mission_id=self.mission_id);farm_announced=True
             elif target is None:
                 self._emit("adventure_paused",message="Incomplete island stages remain locked or unconfirmed. The default farm stage will wait until the full route is verified complete.")
-                if self.continuous:self._stop.wait(60);continue
+                if self.continuous:priority_wait(self,self._stop,60);continue
                 break
             energy,maximum=read_adventure_energy(live)
             cost=target["energy_cost"]
@@ -266,7 +269,7 @@ class AdventureRunner:
             self._emit("adventure_energy",current=energy,max=maximum,reserve=self.reserve)
             if energy<cost+self.reserve or self.energy_budget is not None and spent+cost>self.energy_budget:
                 self._emit("log",message=f"Adventure needs {cost} energy and reserve {self.reserve}; keeping the completion route for the next run.")
-                if self.continuous and self.energy_budget is None:self._stop.wait(60);continue
+                if self.continuous and self.energy_budget is None:priority_wait(self,self._stop,60);continue
                 break
             if self._stop.is_set():break
             self._emit("adventure_target",mission_id=target["mission"],campaign_id=target["campaign_id"],island=target["island"],

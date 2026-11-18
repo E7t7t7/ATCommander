@@ -12,6 +12,7 @@ from tkinter import ttk,messagebox
 import webbrowser
 from .siege_orders_ui import SiegeOrdersMixin
 from copy import deepcopy
+from .event_priority import EventPriority,release_tasks
 from .event_results import event_results
 from .remote_control import EventTimers,RemoteInbox,MODES,DAYS,remote_command
 from .remote_discord import DiscordConnection
@@ -22,7 +23,7 @@ from .log_view import logbox,split_controls_log
 
 class RemoteCenterMixin(SiegeOrdersMixin):
     def _build_remote_center(self):
-        self.discord_connection=None;self.remote_job=None;self.event_timers=EventTimers(self.command_schema.store)
+        self.event_priority=EventPriority();self.discord_connection=None;self.remote_job=None;self.event_timers=EventTimers(self.command_schema.store)
         config=self.command_schema.store.read().get('discord_remote',{})
         if not isinstance(config,dict):config={}
         self.discord_owner=tk.StringVar(value=str(config.get('owner','')));self.discord_token=tk.StringVar()
@@ -58,7 +59,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
             ttk.Button(actions,text='Arm',command=lambda m=mode:self._timer_arm_ui(m)).pack(side='left',padx=3)
             ttk.Button(actions,text='Disarm',command=lambda m=mode:self._timer_disarm(m)).pack(side='left')
         timers.columnconfigure(3,weight=1)
-        ttk.Label(head,text='Siege defaults to Mondays. Choose any weekday or Every day. Blank time starts checking on the next allowed day; HH:MM uses PC local time. Overdue checks stay queued while busy; the state and Discord alert explain the blocker. Combat errors pause the timer.',wraplength=1080).pack(anchor='w',pady=8)
+        ttk.Label(head,text='Siege defaults to Mondays. Choose any weekday or Every day. Blank time starts checking on the next allowed day; HH:MM uses PC local time. Due events take priority after the current battle/action finishes, then regular tasks resume. Combat errors hold regular tasks for review; Stop All cancels the hold.',wraplength=1080).pack(anchor='w',pady=8)
         ttk.Label(head,text='Phone: /commander status · /commander run · /commander timer · /commander command · /commander stop',wraplength=1080).pack(anchor='w')
         self._build_event_defaults(head)
         self.remote_log=logbox(activity,height=7,pady=(0,6))
@@ -136,16 +137,17 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         return 'Commander online. Active: '+(', '.join(active)or'idle')+'\n'+'\n'.join(mode+': '+('armed ('+(DAYS[row['weekday']+1]if row['weekday']is not None else 'Every day')+'), next '+datetime.fromtimestamp(row['due']).strftime('%a %H:%M')if row['enabled']else'disarmed')for mode,row in self.event_timers.rows.items())
     def _remote_begin_event(self,mode,scheduled=False):
         if mode not in MODES:raise ValueError('Choose Siege or Rumble.')
-        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):raise ValueError('Commander is busy. No event run was started.')
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True,priority=scheduled):raise ValueError('Commander is busy. No event run was started.')
         if mode=='Rumble'and not load_profiles().get('rumble'):raise ValueError('Set up the Rumble battle profile in Commander first.')
         defaults=deepcopy(self.event_defaults[mode])
         if mode=='Siege'and not self._orders_ready():raise ValueError('Fresh guild orders are not ready. Review the guild preview first.')
         if mode=='Siege'and not defaults.get('targets')and not defaults.get('fallback')and not self.guild_config.get('use_attack'):raise ValueError('Set Siege defaults or enable fresh guild attack priorities first.')
         guild_plan={'plan':deepcopy(self.guild_plan),'use_attack':self.guild_config.get('use_attack')is True,'use_defense':self.guild_config.get('use_defense')is True,'fallback':self.guild_config.get('fallback')is True}if mode=='Siege'else None
         for variable in (self.delay_var,self.battle_delay_var):float(variable.get())
+        if scheduled and self.remote_job and not self.remote_job.get('scheduled'):self._priority_suspended_job=self.remote_job
         accepted=self.start_event(mode,scheduled=True,defaults=defaults,guild_plan=guild_plan)
         if accepted is not True:raise ValueError('The event run did not start. Review Events on your PC.')
-        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0,'results':[]};return mode+' started using your saved timer/phone defaults.'
+        self.remote_job={'mode':mode,'scheduled':scheduled,'battles':0,'results':[],'runner_key':id(self.event_runner)};return mode+' started using your saved timer/phone defaults.'
     def _remote_dispatch(self,request):
         if request.action=='help':return 'DM commands: status · siege · rumble · stop · timer siege Monday 30 · timer rumble daily 30 · command play-status · cm Wingnut Amy. Paste the full Sunday attack post or Calculon roster directly into this DM.\n\n/commander status\n/commander run event:Siege or Rumble\n/commander timer event:Siege enabled:true minutes:30\n/commander command name:play-status\n/commander stop\nRuns use saved PC settings; stop also disarms timers. Purchases and destructive commands require the PC.'
         if request.action=='orders':return self._orders_from_owner(request.target,request.arguments)
@@ -177,26 +179,33 @@ class RemoteCenterMixin(SiegeOrdersMixin):
                 except (ValueError,TypeError):answer='Request could not run. Check its settings, permissions and whether Commander is busy.'
                 except Exception:answer='Commander could not accept this request. Review its PC activity log before trying again.'
                 request.result.set_result(answer)
-        now=time.time();due=self.event_timers.due(now)
-        if not due:return
-        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):
-            names=[label for label,attr in [('Arena','arena_runner'),('Adventure','adventure_runner'),('Events','event_runner'),('Swole','swole_runner')]if getattr(getattr(self,attr,None),'running',False)]
-            if getattr(self,'research_busy',False):names.append('Research')
-            if getattr(self,'command_busy',False)and not getattr(self,'command_ad_only',False):names.append('command / routine')
-            reason='Waiting for '+(', '.join(names)or'active game / deck worker')+'; overdue check remains queued'
-            for mode in due:
-                if self.event_timers.waiting(mode,reason):self._remote_notify(mode+': '+reason)
-            self._timers_render();return
+        gate=getattr(self,'event_priority',None)
+        if gate is not None and gate.blocked:return
+        if getattr(self,'remote_job',None)and self.remote_job.get('scheduled'):return
+        now=time.time();due=self.event_timers.due(now);eligible=[]
         for mode in due:
             if mode=='Siege'and not self._orders_ready():
                 reason='Waiting for fresh guild orders; check guild preview or paste current orders'
                 if self.event_timers.waiting(mode,reason):self._remote_notify(mode+': '+reason)
-                continue
-            self.event_timers.claim(mode,now)
-            try:self._remote_begin_event(mode,scheduled=True)
-            except Exception:
-                self.event_timers.finish(mode,failed=True);self._remote_notify(mode+' timer paused: settings or event startup need review in Commander.')
-            break
+            else:eligible.append(mode)
+        if not eligible:
+            if gate is not None and gate.requested:release_tasks(self)
+            if due:self._timers_render()
+            return
+        if gate is not None:gate.request()
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True,priority=True):
+            reason='Priority queued: finishing current battle/action before the scheduled event'
+            for mode in eligible:
+                if self.event_timers.waiting(mode,reason):self._remote_notify(mode+': '+reason)
+            self._timers_render();return
+        mode=eligible[0];self.event_timers.claim(mode,now)
+        self._priority_launch=True
+        try:self._remote_begin_event(mode,scheduled=True)
+        except Exception:
+            self.event_timers.finish(mode,failed=True)
+            if gate is not None:gate.hold_after_error()
+            self._remote_notify(mode+' timer paused: event startup needs review. Regular tasks remain held; use Stop All before restarting.')
+        finally:self._priority_launch=False
         self._timers_render()
     def _remote_notify(self,text):
         self._append(self.remote_log,text)
@@ -204,15 +213,30 @@ class RemoteCenterMixin(SiegeOrdersMixin):
     def _remote_observe(self,event):
         if hasattr(self,"guild_config")and self._orders_event(event):return True
         kind=event.get('kind');job=self.remote_job
-        if job and event.get('mode')==job['mode']:
+        gate=getattr(self,'event_priority',None)
+        matches=bool(job and event.get('mode')==job['mode']and (job.get('runner_key')is None or event.get('runner_key')==job['runner_key']))
+        failed_regular=kind=='fatal'or kind=='command_result'and event.get('ok')is False
+        if gate is not None and gate.requested and failed_regular and not matches:
+            gate.hold_after_error()
+            self._remote_notify('A regular task stopped with an error before yielding. Scheduled events and regular tasks remain held; use Stop All and review its outcome.')
+        if matches:
             if kind=='battle_start':job['current_opponent']=event.get('opponent')or'Unknown opponent'
             if kind=='battle_end':
                 job['battles']+=1;job.setdefault('results',[]).append({'opponent':event.get('opponent')or job.get('current_opponent')or'Unknown opponent','won':event.get('won')});job.pop('current_opponent',None)
             if kind in {'finished','fatal'}:
-                if job['scheduled']:self.event_timers.finish(job['mode'],failed=kind=='fatal');self._timers_render()
+                if job['scheduled']:self.event_timers.finish(job['mode'],failed=kind=='fatal'or event.get('stopped')is True);self._timers_render()
                 if job.get('current_opponent'):job.setdefault('results',[]).append({'opponent':job['current_opponent'],'won':None})
                 if kind=='fatal'or job['battles']or job.get('results'):self._remote_notify(event_results(job['mode'],job.get('results',[]),failed=kind=='fatal',stopped=event.get('stopped')is True))
                 self.remote_job=None
+                if job['scheduled']and gate is not None and gate.requested:
+                    if kind=='fatal'or event.get('stopped')is True:
+                        gate.hold_after_error();self._remote_notify('Regular tasks remain held after the event stopped or failed. Use Stop All and review the current fight before restarting.')
+                    else:
+                        # Keep the hold through another ready event; this avoids
+                        # a regular runner starting a fight between due timers.
+                        ready=self.event_timers.due(time.time())
+                        if not ready:
+                            release_tasks(self);self._remote_notify('Scheduled events finished; regular tasks may resume with their remaining limits.')
         if kind=='command_result'and getattr(self,'remote_command_name',None):
             self._remote_notify(self.remote_command_name+(' completed. Results are in Commander.'if event.get('ok')else' stopped with an error; check Commander before retrying.'));self.remote_command_name=None
         if kind=='discord_status':
@@ -226,6 +250,8 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         if hasattr(self,'guild_defense_stop'):self.guild_defense_stop.set()
         if getattr(self,'_closing',False):return
         if hasattr(self,'guild_defense_stop'):self.guild_defense_stop.set();self.guild_suspended=True
+        gate=getattr(self,'event_priority',None)
+        if gate is not None:release_tasks(self)
         if hasattr(self,'event_timers'):
             for mode in MODES:self.event_timers.disarm(mode)
             self._timers_render()

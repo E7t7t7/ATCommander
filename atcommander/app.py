@@ -5,6 +5,7 @@ import json, os, queue, re, subprocess, threading, time, tkinter as tk, webbrows
 from pathlib import Path
 from tkinter import ttk, messagebox, simpledialog
 
+from .event_priority import bind
 from .arena_runner import ArenaRunner
 from .event_runner import EventBattleRunner, ChallengeBattleRunner
 from .swole_runner import SwoleTrainingRunner
@@ -45,7 +46,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.36"
+VERSION="1.7.37"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -970,7 +971,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         except Exception:messagebox.showerror("AT Commander","Check the Arena number fields.");return
         if limit<0 or delay<.05 or bdelay<.1 or reserve<0:messagebox.showerror("AT Commander","Battle limit/reserve must be >= 0; Move Delay >= .05; Battle Delay >= .1.");return
         self._save_settings(); did=self._selected_id(self.deck_var.get(),self.deck_rows); hid=self._selected_id(self.hero_var.get(),self.hero_rows)
-        self.arena_runner=ArenaRunner(limit,delay,bdelay,did,hid,reserve,bool(self.continuous_var.get()),60,bool(self.auto_ads_var.get()),self.events.put,bypass_turn_limit=bool(self.arena_bypass_turn_limit_var.get())); self.session_started_mono=time.monotonic(); self.start_btn.configure(state="disabled");self.pause_btn.configure(state="normal");self.stop_btn.configure(state="normal");self.status_var.set("Starting");self._log(f"Starting Arena. Limit={limit}, move={delay:.2f}s, battle delay={bdelay:.2f}s, reserve={reserve}, continuous={bool(self.continuous_var.get())}, 30-turn cutoff={'bypassed' if self.arena_bypass_turn_limit_var.get() else 'enabled'}.");self.arena_runner.start()
+        self.arena_runner=ArenaRunner(limit,delay,bdelay,did,hid,reserve,bool(self.continuous_var.get()),60,bool(self.auto_ads_var.get()),self.events.put,bypass_turn_limit=bool(self.arena_bypass_turn_limit_var.get())); self.session_started_mono=time.monotonic(); self.start_btn.configure(state="disabled");self.pause_btn.configure(state="normal");self.stop_btn.configure(state="normal");self.status_var.set("Starting");self._log(f"Starting Arena. Limit={limit}, move={delay:.2f}s, battle delay={bdelay:.2f}s, reserve={reserve}, continuous={bool(self.continuous_var.get())}, 30-turn cutoff={'bypassed' if self.arena_bypass_turn_limit_var.get() else 'enabled'}.");bind(self,self.arena_runner,"arena_runner");self.arena_runner.start()
     def toggle_pause(self):
         if self.arena_runner:self.paused=not self.paused;self.arena_runner.pause(self.paused);self.pause_btn.configure(text="Resume" if self.paused else "Pause")
     def stop_run(self):
@@ -981,7 +982,6 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
         if self.adventure_runner:self.adventure_runner.stop();self._append(self.adventure_log,"Stopping Adventure farm…")
     def stop_all(self):
-        RemoteCenterMixin._remote_stop_timers(self)
         if hasattr(self,"reward_stop"):
             self.reward_stop.set();self.reward_due=float("inf")
         if hasattr(self,"deck_builder_stop"):self.deck_builder_stop.set()
@@ -993,10 +993,12 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         if hasattr(self,"adventure_scan_stop"):self.adventure_scan_stop.set()
         if hasattr(self,"command_stop"):self._routine_stop()
         if hasattr(self,"research_status"):self._research_pause()
-        for runner in (self.arena_runner,self.event_runner,self.adventure_runner,self.swole_runner):
+        for runner in (self.arena_runner,self.event_runner,self.adventure_runner,self.swole_runner,getattr(self,'_priority_suspended_event',None)):
             try:
                 if runner:runner.stop()
             except Exception:pass
+
+        RemoteCenterMixin._remote_stop_timers(self)
 
     def close_app(self):
         if self._closing:return
@@ -1041,7 +1043,10 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
 
     def start_event(self,mode,*,scheduled=False,defaults=None,guild_plan=None):
         if self._command_blocks_runner(ignore_ads=mode in {"Siege","Rumble"}):return
-        if self.event_runner and getattr(self.event_runner,"running",False):messagebox.showinfo("AT Commander","An event automation is already running. Stop it first.");return
+        if self.event_runner and getattr(self.event_runner,"running",False):
+            gate=getattr(self,'event_priority',None)
+            if scheduled and gate is not None and gate.parked('event_runner'):self._priority_suspended_event=self.event_runner
+            else:messagebox.showinfo("AT Commander","An event automation is already running. Stop it first.");return
         p=load_profiles(); key=mode.lower()
         if mode!="Siege" and not p.get(key):messagebox.showinfo("Needs learning",f"{mode} start-battle is not learned yet. Open Diagnostics / Learn and capture one real {mode} fight.");self.nb.select(self.diag_tab);return
         deck=self.rumble_deck.get() if mode=="Rumble" else self.siege_deck.get(); did=self._selected_id(deck,self.deck_rows); island=self._selected_island_id(self.siege_island.get()) if mode=="Siege" else None; logic=self.rumble_logic.get() if mode=="Rumble" else self.siege_logic.get(); offdeck=self.rumble_offense_deck.get() if mode=="Rumble" else self.siege_offense_deck.get(); offhero=self.rumble_offense_hero.get() if mode=="Rumble" else self.siege_offense_hero.get(); odid=self._selected_id(offdeck,self.deck_rows); ohid=self._selected_id(offhero,self.hero_rows)
@@ -1059,7 +1064,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
             did=defaults.get('defense_deck_id')or None;island=defaults.get('island_id')or None
             odid=defaults.get('offense_deck_id')or None;ohid=defaults.get('offense_hero_id')or None
             logic=defaults.get('logic')or logic;targets=list(defaults.get('targets',[]));fallback=defaults.get('fallback')is True
-        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll,siege_once=scheduled,defaults=defaults,guild_plan=guild_plan);self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
+        self._save_settings(); self.event_runner=EventBattleRunner(mode,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),did,island,logic,odid,ohid,bool(self.auto_ads_var.get()),self.events.put,targets,fallback,poll,siege_once=scheduled,defaults=defaults,guild_plan=guild_plan);bind(self,self.event_runner,"scheduled_event" if scheduled else "event_runner");self.event_runner.event_priority=None if scheduled else getattr(self,"event_priority",None);self.event_runner.priority_restore=bool(scheduled and getattr(getattr(self,'event_priority',None),'has_parked',lambda:False)());self.event_runner.start();self._event_log(f"Starting {mode} automation with {logic}…" if mode!="Siege" else f"Siege armed. Priorities={targets or ['any']} • fallback={fallback} • poll={poll}s.")
         return True
 
     def _selected_challenge_row(self):
@@ -1078,7 +1083,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
             messagebox.showinfo("Challenges","The current challenge ID and level are incomplete. Refresh Account before starting.");return
         odid=self._selected_id(self.challenge_offense_deck.get(),self.deck_rows);ohid=self._selected_id(self.challenge_offense_hero.get(),self.hero_rows)
         preference=getattr(self,"melee_character_first_var",None)
-        self.event_runner=ChallengeBattleRunner(str(row.get("id")),str(row.get("challenge_id")),str(row.get("name")),float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),self.challenge_logic.get(),odid,ohid,bool(self.auto_ads_var.get()),self.events.put,level=row.get("level"),melee_character_first=bool(preference.get()) if preference is not None else False);self.event_runner.start();self._event_log(f"Starting {row.get('name')} with the direct signed API…")
+        self.event_runner=ChallengeBattleRunner(str(row.get("id")),str(row.get("challenge_id")),str(row.get("name")),float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),self.challenge_logic.get(),odid,ohid,bool(self.auto_ads_var.get()),self.events.put,level=row.get("level"),melee_character_first=bool(preference.get()) if preference is not None else False);bind(self,self.event_runner,"event_runner");self.event_runner.start();self._event_log(f"Starting {row.get('name')} with the direct signed API…")
 
     def _save_melee_character_first(self):
         """Persist the checkbox without starting combat or altering other options."""
@@ -1159,7 +1164,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         except:poll=30
         # Training and signed fight starts share the ordered schedule. Incomplete
         # live event data pauses a fight block and preserves the remaining queue.
-        self.swole_runner=SwoleTrainingRunner(self.swole_plan,poll,bool(self.auto_ads_var.get()),self.events.put);self.swole_runner.start();self._swole_log("Swole schedule started.")
+        self.swole_runner=SwoleTrainingRunner(self.swole_plan,poll,bool(self.auto_ads_var.get()),self.events.put);bind(self,self.swole_runner,"swole_runner");self.swole_runner.start();self._swole_log("Swole schedule started.")
 
     def stop_swole(self):
         if self.swole_runner:self.swole_runner.stop()
@@ -1233,7 +1238,7 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
         except ValueError as exc:messagebox.showerror("Adventure",str(exc));return
         self._save_settings()
         self._adventure_pause_message=None;self._adventure_error_message=None
-        self.adventure_runner=AdventureRunner(mid,limit,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),reserve,bool(self.adventure_continuous.get()),bool(self.auto_ads_var.get()),self.events.put,complete_islands=complete,completion_target=target);self.adventure_runner.start()
+        self.adventure_runner=AdventureRunner(mid,limit,float(self.delay_var.get() or .10),float(self.battle_delay_var.get() or 1.5),reserve,bool(self.adventure_continuous.get()),bool(self.auto_ads_var.get()),self.events.put,complete_islands=complete,completion_target=target);bind(self,self.adventure_runner,"adventure_runner");self.adventure_runner.start()
         action=(f"Completing available islands ({target}), then farming default mission {mid}" if complete else f"Starting farm on mission {mid}")
         self._append(self.adventure_log,f"{action}. Limit={limit or 'unlimited'}, reserve={reserve}. Arena/Swole may continue independently.")
 

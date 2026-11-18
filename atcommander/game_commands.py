@@ -328,6 +328,8 @@ def register_game_commands(s):
         if args["buy_basic"]:service.execute("buy-basic",{"quantity":"3"})
         completed=[];refresh_spent=refresh_count=0;stop_reason="";unavailable_event=None
         for battle in range(1,args["count"]+1):
+            from .event_priority import checkpoint
+            if not checkpoint(service,driver._stop,service.context.invalidate):break
             if driver._stop.is_set():break
             live=service.snapshot(refresh=True);mode=args["mode"]
             if mode=="arena":

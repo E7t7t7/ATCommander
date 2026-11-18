@@ -135,6 +135,8 @@ class ResearchCenterMixin:
                 service=build_service(ATClient(load_credentials(),timeout=45),store=self.command_schema.store,
                     emit=lambda message:self.events.put({"kind":"research_log","generation":launch["generation"],"message":message.get("message",str(message)) if isinstance(message,dict) else str(message)}))
                 service.stop=self.command_stop
+                from .event_priority import bind
+                bind(self,service,"commands")
                 if self.command_stop.is_set():result(cancelled=True);return
                 args={} if reconcile else {"options":launch["options_json"]}
                 if not preview and not reconcile:args["resume"]=resume

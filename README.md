@@ -1,4 +1,4 @@
-Current release: **1.7.36**. See [scheduled event reliability](README_1.7.36_CHANGES.md).
+Current release: **1.7.37**. See [scheduled event priority and task resume](README_1.7.37_CHANGES.md).
 
 # AT Commander 1.7.27
 
