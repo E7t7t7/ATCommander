@@ -110,19 +110,55 @@ class ScheduledSiegeTests(unittest.TestCase):
   self.assertEqual(events[-1]['kind'],'finished')
 
 class RemoteDispatchTests(unittest.TestCase):
- def test_busy_scheduler_does_not_claim_a_due_job(self):
+ def app(self):
   from types import SimpleNamespace
-  app=SimpleNamespace(_closing=False,discord_connection=None,event_timers=Mock())
-  with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=True):RemoteCenterMixin._remote_tick(app)
-  app.event_timers.claim.assert_not_called()
+  tmp=tempfile.TemporaryDirectory();self.addCleanup(tmp.cleanup)
+  book=EventTimers(CommandStore(Path(tmp.name)/'state.json'));book.arm('Rumble',30,0)
+  return SimpleNamespace(_closing=False,discord_connection=None,event_timers=book,_timers_render=Mock(),_remote_notify=Mock(),_remote_begin_event=Mock(),_orders_ready=Mock(return_value=True))
+ def test_busy_scheduler_does_not_claim_and_explains_why(self):
+  app=self.app();app.research_busy=True
+  with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=True):
+   RemoteCenterMixin._remote_tick(app);RemoteCenterMixin._remote_tick(app)
+  self.assertFalse(app.event_timers.rows['Rumble']['active']);self.assertEqual(app.event_timers.rows['Rumble']['due'],0)
+  app._remote_notify.assert_called_once();self.assertIn('Research',app._remote_notify.call_args.args[0])
+  self.assertTrue(app.event_timers.rows['Rumble']['enabled'])
+ def test_due_run_starts_as_soon_as_busy_worker_settles(self):
+  app=self.app()
+  with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',side_effect=[True,False]):
+   RemoteCenterMixin._remote_tick(app);RemoteCenterMixin._remote_tick(app)
+  app._remote_begin_event.assert_called_once_with('Rumble',scheduled=True)
  def test_cancelled_phone_request_never_dispatches(self):
   from types import SimpleNamespace
-  inbox=RemoteInbox(OWNER);future=inbox.submit(OWNER,1,'stop');future.cancel()
-  app=SimpleNamespace(_closing=False,discord_connection=SimpleNamespace(inbox=inbox),event_timers=Mock(),_remote_dispatch=Mock())
+  app=self.app();inbox=RemoteInbox(OWNER);future=inbox.submit(OWNER,1,'stop');future.cancel()
+  app.discord_connection=SimpleNamespace(inbox=inbox);app._remote_dispatch=Mock()
   with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=True):RemoteCenterMixin._remote_tick(app)
   app._remote_dispatch.assert_not_called()
- def test_timer_waits_for_saved_decks_to_load_before_claiming(self):
-  from types import SimpleNamespace
-  app=SimpleNamespace(_closing=False,discord_connection=None,event_timers=Mock(),deck_rows=[])
+ def test_deck_dropdown_cache_is_not_required_to_launch_saved_defaults(self):
+  app=self.app();app.deck_rows=[]
   with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=False):RemoteCenterMixin._remote_tick(app)
-  app.event_timers.claim.assert_not_called()
+  app._remote_begin_event.assert_called_once_with('Rumble',scheduled=True)
+ def test_missing_orders_explained_without_blocking_rumble(self):
+  app=self.app();app.event_timers.arm('Siege',30,0,weekday=None);app.event_timers.rows['Rumble']['due']=1;app._orders_ready.return_value=False
+  with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=False):RemoteCenterMixin._remote_tick(app)
+  self.assertIn('fresh guild orders',app.event_timers.rows['Siege']['note']);app._remote_begin_event.assert_called_once_with('Rumble',scheduled=True)
+  self.assertFalse(app.event_timers.rows['Siege']['active'])
+ def test_uncertain_start_still_pauses_instead_of_replaying(self):
+  app=self.app();app._remote_begin_event.side_effect=RuntimeError('private data must not be reported')
+  with patch('atcommander.remote_center.CommandCenterMixin._browser_action_busy',return_value=False):
+   RemoteCenterMixin._remote_tick(app);RemoteCenterMixin._remote_tick(app)
+  app._remote_begin_event.assert_called_once();self.assertFalse(app.event_timers.rows['Rumble']['enabled'])
+  self.assertNotIn('private',str(app._remote_notify.call_args))
+
+class HeartbeatTests(unittest.TestCase):
+ def test_error_does_not_disable_future_ticks_or_other_checks(self):
+  from types import SimpleNamespace
+  from atcommander.app import ATCommanderApp
+  app=SimpleNamespace(_closing=False,root=Mock(),discord_connection=None,guild_config=True,client_update_schedule=True,reward_auto=True,command_schema=True,research_status=True,
+      _tick_clock=Mock(),_remote_tick=Mock(side_effect=RuntimeError('synthetic')),_guild_tick=Mock(side_effect=RuntimeError('synthetic guild failure')),_client_update_tick=Mock(),_reward_tick=Mock(),_command_tick=Mock(),_research_tick=Mock())
+  ATCommanderApp._tick_clock(app)
+  app.root.after.assert_called_once_with(1000,app._tick_clock);self.assertEqual(app.root.report_callback_exception.call_count,2)
+  for callback in (app._client_update_tick,app._reward_tick,app._command_tick,app._research_tick):callback.assert_called_once()
+ def test_closed_app_does_not_reschedule(self):
+  from types import SimpleNamespace
+  from atcommander.app import ATCommanderApp
+  app=SimpleNamespace(_closing=True,root=Mock());ATCommanderApp._tick_clock(app);app.root.after.assert_not_called()

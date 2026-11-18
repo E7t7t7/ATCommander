@@ -45,7 +45,7 @@ from .shop_rewards import (api_rejected, extract_item_choices, item_choice_prior
                            PurchaseInterrupted)
 
 GAME_URL="https://www.kongregate.com/en/games/throwdown/animation-throwdown"
-VERSION="1.7.35"
+VERSION="1.7.36"
 LOGIC_VALUES=["Item → Combo (default)","Item → Combo (aggressive tiebreak)","Item → Combo (durable tiebreak)"]
 ADVENTURE_MODES=["Farm selected stage","Complete islands, then farm"]
 ADVENTURE_GOALS={"Stage completion":"progress","100% mastery":"mastery"}
@@ -2579,12 +2579,15 @@ class ATCommanderApp(RemoteCenterMixin,RewardCleanupMixin,DeckBuilderMixin,AppUp
     def _reset_buttons(self):self.start_btn.configure(state="normal");self.pause_btn.configure(state="disabled",text="Pause");self.stop_btn.configure(state="disabled");self.paused=False
     def _tick_clock(self):
         if self._closing:return
-        if hasattr(self,"client_update_schedule"):self._client_update_tick()
-        if hasattr(self,"discord_connection"):self._remote_tick()
-        if hasattr(self,"reward_auto"):self._reward_tick()
-        if hasattr(self,"command_schema"):self._command_tick()
-        if hasattr(self,"research_status"):self._research_tick()
+        # Install the next heartbeat first. One failed subsystem must not kill
+        # event schedules or prevent the remaining independent checks.
         self.root.after(1000,self._tick_clock)
+        for marker,callback in (("discord_connection","_remote_tick"),("guild_config","_guild_tick"),("client_update_schedule","_client_update_tick"),
+                                ("reward_auto","_reward_tick"),("command_schema","_command_tick"),("research_status","_research_tick")):
+            if not hasattr(self,marker):continue
+            try:getattr(self,callback)()
+            except Exception as error:
+                self.root.report_callback_exception(type(error),error,error.__traceback__)
     def _log(self,t):self._append(self.log,t)
     def _event_log(self,t):self._append(self.event_log,t)
     def _swole_log(self,t):self._append(self.swole_log,t)

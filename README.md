@@ -1,4 +1,4 @@
-Current release: **1.7.35**. See [game client 1.184 compatibility](README_1.7.35_CHANGES.md).
+Current release: **1.7.36**. See [scheduled event reliability](README_1.7.36_CHANGES.md).
 
 # AT Commander 1.7.27
 

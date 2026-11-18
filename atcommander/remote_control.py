@@ -87,6 +87,10 @@ class EventTimers:
         if changed:self.save()
         ready=[m for m in MODES if self.rows[m]['enabled']and not self.rows[m]['active']and self.rows[m]['due']<=now]
         return sorted(ready,key=lambda m:(self.rows[m]['due'],m))
+    def waiting(self,mode,note):
+        row=self.rows[mode]
+        if row['note']==note:return False
+        row['note']=note;self.save();return True
     def claim(self,mode,now):
         row=self.rows[mode]
         if mode not in self.due(now):raise ValueError('This timer is not due.')

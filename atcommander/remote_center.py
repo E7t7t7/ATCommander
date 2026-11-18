@@ -58,7 +58,7 @@ class RemoteCenterMixin(SiegeOrdersMixin):
             ttk.Button(actions,text='Arm',command=lambda m=mode:self._timer_arm_ui(m)).pack(side='left',padx=3)
             ttk.Button(actions,text='Disarm',command=lambda m=mode:self._timer_disarm(m)).pack(side='left')
         timers.columnconfigure(3,weight=1)
-        ttk.Label(head,text='Siege defaults to Mondays. Choose any weekday or Every day. Blank time starts checking on the next allowed day; HH:MM uses PC local time. Busy checks wait; errors pause the timer.',wraplength=1080).pack(anchor='w',pady=8)
+        ttk.Label(head,text='Siege defaults to Mondays. Choose any weekday or Every day. Blank time starts checking on the next allowed day; HH:MM uses PC local time. Overdue checks stay queued while busy; the state and Discord alert explain the blocker. Combat errors pause the timer.',wraplength=1080).pack(anchor='w',pady=8)
         ttk.Label(head,text='Phone: /commander status · /commander run · /commander timer · /commander command · /commander stop',wraplength=1080).pack(anchor='w')
         self._build_event_defaults(head)
         self.remote_log=logbox(activity,height=7,pady=(0,6))
@@ -137,7 +137,6 @@ class RemoteCenterMixin(SiegeOrdersMixin):
     def _remote_begin_event(self,mode,scheduled=False):
         if mode not in MODES:raise ValueError('Choose Siege or Rumble.')
         if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):raise ValueError('Commander is busy. No event run was started.')
-        if not getattr(self,'deck_rows',None):raise ValueError('Wait for Refresh account to load your saved deck selections first.')
         if mode=='Rumble'and not load_profiles().get('rumble'):raise ValueError('Set up the Rumble battle profile in Commander first.')
         defaults=deepcopy(self.event_defaults[mode])
         if mode=='Siege'and not self._orders_ready():raise ValueError('Fresh guild orders are not ready. Review the guild preview first.')
@@ -178,17 +177,26 @@ class RemoteCenterMixin(SiegeOrdersMixin):
                 except (ValueError,TypeError):answer='Request could not run. Check its settings, permissions and whether Commander is busy.'
                 except Exception:answer='Commander could not accept this request. Review its PC activity log before trying again.'
                 request.result.set_result(answer)
-        if hasattr(self,'guild_config'):self._guild_tick()
-        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):return
-        if not getattr(self,'deck_rows',None):return
-        due=self.event_timers.due(time.time())
+        now=time.time();due=self.event_timers.due(now)
         if not due:return
-        mode=next((m for m in due if m!='Siege'or self._orders_ready()),None)
-        if mode is None:return
-        self.event_timers.claim(mode,time.time())
-        try:self._remote_begin_event(mode,scheduled=True)
-        except Exception:
-            self.event_timers.finish(mode,failed=True);self._remote_notify(mode+' timer paused: settings or event startup need review in Commander.')
+        if CommandCenterMixin._browser_action_busy(self,ignore_ads=True):
+            names=[label for label,attr in [('Arena','arena_runner'),('Adventure','adventure_runner'),('Events','event_runner'),('Swole','swole_runner')]if getattr(getattr(self,attr,None),'running',False)]
+            if getattr(self,'research_busy',False):names.append('Research')
+            if getattr(self,'command_busy',False)and not getattr(self,'command_ad_only',False):names.append('command / routine')
+            reason='Waiting for '+(', '.join(names)or'active game / deck worker')+'; overdue check remains queued'
+            for mode in due:
+                if self.event_timers.waiting(mode,reason):self._remote_notify(mode+': '+reason)
+            self._timers_render();return
+        for mode in due:
+            if mode=='Siege'and not self._orders_ready():
+                reason='Waiting for fresh guild orders; check guild preview or paste current orders'
+                if self.event_timers.waiting(mode,reason):self._remote_notify(mode+': '+reason)
+                continue
+            self.event_timers.claim(mode,now)
+            try:self._remote_begin_event(mode,scheduled=True)
+            except Exception:
+                self.event_timers.finish(mode,failed=True);self._remote_notify(mode+' timer paused: settings or event startup need review in Commander.')
+            break
         self._timers_render()
     def _remote_notify(self,text):
         self._append(self.remote_log,text)
