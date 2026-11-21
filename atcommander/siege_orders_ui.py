@@ -19,7 +19,7 @@ class SiegeOrdersMixin:
         saved=self.command_schema.store.read();self.event_defaults=saved.get('scheduled_event_defaults',{})
         if not isinstance(self.event_defaults,dict):self.event_defaults={}
         self.default_vars={};self.default_widgets={}
-        box=ttk.LabelFrame(parent,text='Saved defaults for scheduled and phone runs',padding=10);box.pack(fill='x',pady=10)
+        box=ttk.LabelFrame(parent,text='Saved defaults for scheduled and phone runs',padding=10);box.pack(fill='x',pady=10);self.event_defaults_box=box
         ttk.Label(box,text='These defaults are independent of Events. Choose an offense deck and hero/commander for each event, then Save defaults.',wraplength=1000).pack(anchor='w')
         tabs=ttk.Notebook(box);tabs.pack(fill='x',pady=6)
         for mode in ('Siege','Rumble'):
@@ -56,7 +56,7 @@ class SiegeOrdersMixin:
         self.guild_defense=tk.BooleanVar(value=config.get('use_defense')is True);self.guild_fallback=tk.BooleanVar(value=config.get('fallback')is True)
         self.guild_alias=tk.StringVar(value=str(config.get('alias','')));self.guild_leaders=tk.StringVar(value=str(config.get('leaders','')))
         self.guild_preview=tk.StringVar(value='No guild orders fetched yet. No channel messages are read until guild reading is enabled.')
-        guild=ttk.LabelFrame(parent,text='Guild Siege orders',padding=10);guild.pack(fill='x',pady=8)
+        guild=ttk.LabelFrame(parent,text='Guild Siege orders',padding=10);guild.pack(fill='x',pady=8);self.guild_orders_box=guild
         ttk.Checkbutton(guild,text='Use orders pasted into my bot DM (the bot does not need to join the guild server)',variable=self.guild_dm_only).pack(anchor='w')
         ttk.Checkbutton(guild,text='Read the two configured guild channels (requires bot access + Message Content Intent)',variable=self.guild_enabled).pack(anchor='w')
         for text,cid in [('Attack announcements',ATTACK_CHANNEL),('Calculon defense assignments',DEFENSE_CHANNEL)]:

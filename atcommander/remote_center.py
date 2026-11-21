@@ -29,8 +29,14 @@ class RemoteCenterMixin(SiegeOrdersMixin):
         self.discord_owner=tk.StringVar(value=str(config.get('owner','')));self.discord_token=tk.StringVar()
         self.discord_autoconnect=tk.BooleanVar(value=config.get('autoconnect')is True)
         self.discord_state=tk.StringVar(value='Disconnected');self.discord_application='';self.timer_vars={}
-        self.remote_panes,controls,activity=split_controls_log(self.remote_tab,controls_height=510)
-        head=ttk.Frame(controls,padding=12);head.pack(fill='x')
+        navigation=ttk.Frame(self.remote_tab,padding=(6,5));navigation.pack(fill='x')
+        ttk.Label(navigation,text='Go to:').pack(side='left',padx=(0,6))
+        self.remote_jump_buttons={}
+        for label,attribute in (('Connection & timers','remote_connection_box'),('Siege / Rumble defaults','event_defaults_box'),('Guild orders','guild_orders_box')):
+            button=ttk.Button(navigation,text=label,command=lambda name=attribute:self.remote_panes.scroll_to(getattr(self,name)))
+            button.pack(side='left',padx=3);self.remote_jump_buttons[attribute]=button
+        self.remote_panes,controls,activity=split_controls_log(self.remote_tab,controls_height=510,accessible_scroll=True)
+        head=ttk.Frame(controls,padding=12);head.pack(fill='x');self.remote_connection_box=head
         ttk.Label(head,text='Your phone, connected to Commander',style='Big.TLabel').pack(anchor='w')
         ttk.Label(head,text='Leave this PC awake and Commander open. Timers use the independent event defaults below. Only your Discord user ID can control it.',wraplength=1060).pack(anchor='w',pady=(4,10))
         form=ttk.LabelFrame(head,text='Discord connection',padding=10);form.pack(fill='x')

@@ -1,4 +1,4 @@
-Current release: **1.7.37**. See [scheduled event priority and task resume](README_1.7.37_CHANGES.md).
+Current release: **1.7.38**. See [accessible timer and Siege settings](README_1.7.38_CHANGES.md).
 
 # AT Commander 1.7.27
 

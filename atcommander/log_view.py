@@ -3,23 +3,68 @@ import tkinter as tk
 from tkinter import ttk
 
 
-def split_controls_log(parent, controls_height=360):
+def split_controls_log(parent, controls_height=360, *, accessible_scroll=False):
     panes = tk.PanedWindow(parent, orient="vertical", bg="#253443", sashwidth=9,
                            sashrelief="flat", borderwidth=0, opaqueresize=True)
     panes.pack(fill="both", expand=True, pady=(6, 0))
     scroll = ttk.Frame(panes)
     canvas = tk.Canvas(scroll, bg="#10151d", highlightthickness=0, height=controls_height)
-    bar = ttk.Scrollbar(scroll, orient="vertical", command=canvas.yview)
-    canvas.configure(yscrollcommand=bar.set)
-    bar.pack(side="right", fill="y"); canvas.pack(side="left", fill="both", expand=True)
-    controls = ttk.Frame(canvas)
-    item = canvas.create_window((0, 0), window=controls, anchor="nw")
-    controls.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-    canvas.bind("<Configure>", lambda e: canvas.itemconfigure(item, width=e.width))
+    if accessible_scroll:
+        # Use a real, wide dark scrollbar with a visible thumb. Native ttk themes
+        # can render the old narrow trough almost indistinguishably from the page.
+        bar=tk.Scrollbar(scroll,orient="vertical",command=canvas.yview,width=22,
+                         bg="#668b91",activebackground="#8db8bc",troughcolor="#253443",
+                         relief="flat",borderwidth=0,highlightthickness=0)
+        horizontal=tk.Scrollbar(scroll,orient="horizontal",command=canvas.xview,width=18,
+                                bg="#668b91",activebackground="#8db8bc",troughcolor="#253443",
+                                relief="flat",borderwidth=0,highlightthickness=0)
+        canvas.configure(yscrollcommand=bar.set,xscrollcommand=horizontal.set)
+        scroll.rowconfigure(0,weight=1);scroll.columnconfigure(0,weight=1)
+        canvas.grid(row=0,column=0,sticky="nsew");bar.grid(row=0,column=1,sticky="ns")
+        horizontal.grid(row=1,column=0,sticky="ew")
+        footer=ttk.Frame(scroll);footer.grid(row=2,column=0,columnspan=2,sticky="ew")
+        ttk.Label(footer,text="Scroll settings · drag the right scrollbar or use ▲ / ▼").pack(side="left",padx=6)
+        ttk.Button(footer,text="▲",width=4,command=lambda:canvas.yview_scroll(-1,"pages")).pack(side="right",padx=2)
+        ttk.Button(footer,text="▼",width=4,command=lambda:canvas.yview_scroll(1,"pages")).pack(side="right",padx=2)
+    else:
+        bar=ttk.Scrollbar(scroll,orient="vertical",command=canvas.yview)
+        canvas.configure(yscrollcommand=bar.set)
+        bar.pack(side="right",fill="y");canvas.pack(side="left",fill="both",expand=True)
+    controls=ttk.Frame(canvas)
+    item=canvas.create_window((0,0),window=controls,anchor="nw")
+    def resize(event=None):
+        width=canvas.winfo_width()
+        if accessible_scroll:width=max(width,controls.winfo_reqwidth())
+        canvas.itemconfigure(item,width=width)
+        canvas.configure(scrollregion=canvas.bbox("all"))
+    controls.bind("<Configure>",resize)
+    canvas.bind("<Configure>",resize)
     def wheel(event):
-        if event.delta: canvas.yview_scroll(-int(event.delta / 120) or (-1 if event.delta > 0 else 1), "units")
-    # A dedicated scroll surface avoids stealing combobox/list mouse wheels.
-    canvas.bind("<MouseWheel>", wheel)
+        if event.delta:canvas.yview_scroll(-int(event.delta/120)or(-1 if event.delta>0 else 1),"units")
+    canvas.bind("<MouseWheel>",wheel)
+    if accessible_scroll:
+        # A per-pane bindtag reaches form backgrounds/labels/buttons without
+        # stealing wheel input from editable controls, dropdowns or live logs.
+        tag="CommanderControls"+str(id(canvas))
+        def tag_children(widget):
+            for child in widget.winfo_children():
+                if child.winfo_class()not in {"TCombobox","TSpinbox","Spinbox","Text","Listbox","Treeview","TEntry","Entry","Scrollbar","TScrollbar"}:
+                    if tag not in child.bindtags():child.bindtags((*child.bindtags()[:-1],tag,child.bindtags()[-1]))
+                tag_children(child)
+        def configure_controls(event=None):resize();tag_children(controls)
+        controls.bind("<Configure>",configure_controls)
+        def scroll_form(event):wheel(event);return "break"
+        canvas.bind_class(tag,"<MouseWheel>",scroll_form)
+        def clean(event):
+            if event.widget is canvas:canvas.unbind_class(tag,"<MouseWheel>")
+        canvas.bind("<Destroy>",clean)
+        panes.controls_horizontal=horizontal
+    def scroll_to(widget):
+        controls.update_idletasks();resize()
+        y=widget.winfo_rooty()-controls.winfo_rooty()
+        height=max(1,controls.winfo_height())
+        canvas.yview_moveto(max(0,y-8)/height);canvas.xview_moveto(0)
+    panes.controls_canvas=canvas;panes.controls_scrollbar=bar;panes.scroll_to=scroll_to
     bottom = ttk.Frame(panes)
     panes.add(scroll, minsize=100, height=controls_height, stretch="always")
     panes.add(bottom, minsize=110, height=180, stretch="always")
